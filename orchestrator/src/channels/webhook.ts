@@ -1,6 +1,9 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
-import { spawnAgent, getAgentConfig } from '../spawn.js';
+import http from 'http';
+import https from 'https';
+import { URL } from 'url';
+import { spawnAgent, getAgentConfig, waitForFinalCompletion } from '../spawn.js';
 import type { ChannelConfig } from '../types.js';
 
 export function createWebhookRouter(configs: Map<string, ChannelConfig>): Router {
@@ -32,11 +35,41 @@ export function createWebhookRouter(configs: Map<string, ChannelConfig>): Router
       const text = extractText(body, config.type);
       const agentName = resolveAgent(text, config);
       const agentConfig = getAgentConfig(agentName);
-      spawnAgent(agentConfig, text, channelName);
+      const callbackUrl = typeof body.callback_url === 'string' ? body.callback_url : undefined;
+      const missionId = spawnAgent(agentConfig, text, channelName, undefined, callbackUrl);
+      if (callbackUrl) {
+        waitForFinalCompletion(missionId, (status, output) => {
+          postCallback(callbackUrl, { missionId, status, output: output ?? null });
+        });
+      }
     });
   });
 
   return router;
+}
+
+function postCallback(url: string, payload: Record<string, unknown>): void {
+  try {
+    const parsed = new URL(url);
+    const body = JSON.stringify(payload);
+    const options = {
+      hostname: parsed.hostname,
+      port: parsed.port || (parsed.protocol === 'https:' ? '443' : '80'),
+      path: parsed.pathname + parsed.search,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    };
+    const transport = parsed.protocol === 'https:' ? https : http;
+    const req = transport.request(options, (res) => { res.resume(); });
+    req.on('error', (err) => console.error('[webhook] callback error:', err.message));
+    req.write(body);
+    req.end();
+  } catch (err) {
+    console.error('[webhook] postCallback failed:', err);
+  }
 }
 
 function verifyHMAC(body: unknown, secret: string, signature: string): boolean {

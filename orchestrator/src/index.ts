@@ -7,6 +7,7 @@ import { db } from './db.js';
 import { spawnAgent, sendInput, killMission, getAgentConfig } from './spawn.js';
 import { addClient, addGlobalClient } from './sse.js';
 import { setupChannels } from './channels/index.js';
+import { createChannelApiRouter } from './channels/api.js';
 import { createRemoteRouter } from './remote/routes.js';
 import { createStatsRouter } from './routes/stats.js';
 import { createTasksRouter } from './routes/tasks.js';
@@ -147,6 +148,7 @@ app.get('/api/agents/:name/system-prompt', (req, res) => {
 // ====== CHANNELS ======
 const channelRouter = setupChannels();
 app.use('/api/channels', channelRouter);
+app.use('/api/channels/config', createChannelApiRouter());
 
 // ====== REMOTE CONTROL ======
 const remoteRouter = createRemoteRouter();

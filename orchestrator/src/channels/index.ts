@@ -2,32 +2,63 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { Router } from 'express';
-import { startTelegramPolling } from './telegram.js';
+import { startTelegramPolling, type TelegramHandle } from './telegram.js';
 import { createWebhookRouter } from './webhook.js';
 import type { ChannelConfig } from '../types.js';
 
-export function setupChannels(): Router {
-  const channelsDir = path.join(os.homedir(), '.mos', 'channels');
-  const configs = new Map<string, ChannelConfig>();
+const channelsDir = path.join(os.homedir(), '.mos', 'channels');
 
+const configs = new Map<string, ChannelConfig>();
+const telegramHandles = new Map<string, TelegramHandle>();
+
+let webhookRouter = createWebhookRouter(configs);
+
+function loadChannel(name: string): void {
+  const filePath = path.join(channelsDir, `${name}.json`);
+  try {
+    const config = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as ChannelConfig;
+    configs.set(name, config);
+    if (config.type === 'telegram') {
+      const handle = startTelegramPolling(config);
+      if (handle) telegramHandles.set(name, handle);
+    }
+  } catch (e) {
+    console.error(`[channels] Failed to load ${name}:`, e);
+  }
+}
+
+async function stopChannel(name: string): Promise<void> {
+  const handle = telegramHandles.get(name);
+  if (handle) {
+    await handle.stop();
+    telegramHandles.delete(name);
+  }
+  configs.delete(name);
+}
+
+export async function reloadChannel(name: string): Promise<void> {
+  await stopChannel(name);
+  loadChannel(name);
+}
+
+export async function removeChannel(name: string): Promise<void> {
+  await stopChannel(name);
+}
+
+export function listChannels(): { name: string; config: ChannelConfig }[] {
+  return Array.from(configs.entries()).map(([name, config]) => ({ name, config }));
+}
+
+export function getWebhookRouter(): Router {
+  return webhookRouter;
+}
+
+export function setupChannels(): Router {
   if (fs.existsSync(channelsDir)) {
     for (const file of fs.readdirSync(channelsDir)) {
       if (!file.endsWith('.json')) continue;
-      const name = file.replace('.json', '');
-      try {
-        const config = JSON.parse(
-          fs.readFileSync(path.join(channelsDir, file), 'utf-8')
-        ) as ChannelConfig;
-        configs.set(name, config);
-
-        if (config.type === 'telegram') {
-          startTelegramPolling(config);
-        }
-      } catch (e) {
-        console.error(`[channels] Failed to load ${file}:`, e);
-      }
+      loadChannel(file.replace('.json', ''));
     }
   }
-
-  return createWebhookRouter(configs);
+  return webhookRouter;
 }
