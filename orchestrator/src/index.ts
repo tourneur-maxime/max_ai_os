@@ -65,6 +65,15 @@ app.post('/api/agents/:id/send', (req, res) => {
   res.json({ sent });
 });
 
+// GET /api/missions/:id/output — final result text
+app.get('/api/missions/:id/output', (req, res) => {
+  const row = db.prepare(
+    "SELECT payload FROM events WHERE mission_id = ? AND type = 'result' ORDER BY timestamp DESC LIMIT 1"
+  ).get(req.params.id) as { payload: string } | undefined;
+  const parsed = row ? JSON.parse(row.payload) as Record<string, unknown> : null;
+  res.json({ output: parsed?.result ?? null });
+});
+
 // DELETE /api/missions/:id
 app.delete('/api/missions/:id', (req, res) => {
   const killed = killMission(req.params.id);

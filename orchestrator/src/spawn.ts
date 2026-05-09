@@ -83,14 +83,17 @@ function storeAndBroadcast(missionId: string, event: Record<string, unknown>): v
 
   broadcast(missionId, { ...event, missionId, timestamp });
 
-  // Update costs if available in the event
-  if (type === 'usage' || event.usage) {
+  // Capture tokens + cost from result event (stream-json final event)
+  if (type === 'result') {
     const usage = event.usage as Record<string, number> | undefined;
-    if (usage) {
-      db.prepare(`
-        UPDATE missions SET tokens_in = ?, tokens_out = ? WHERE id = ?
-      `).run(usage.input_tokens ?? 0, usage.output_tokens ?? 0, missionId);
-    }
+    db.prepare(`
+      UPDATE missions SET tokens_in = ?, tokens_out = ?, cost_usd = ? WHERE id = ?
+    `).run(
+      usage?.input_tokens ?? 0,
+      usage?.output_tokens ?? 0,
+      (event.cost_usd as number) ?? null,
+      missionId,
+    );
   }
 }
 
