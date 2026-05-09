@@ -70,7 +70,28 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS schedules (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    agent_name TEXT NOT NULL,
+    input_template TEXT NOT NULL,
+    cron_expr TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    last_run_at INTEGER,
+    last_mission_id TEXT,
+    created_at INTEGER NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_events_mission ON events(mission_id);
   CREATE INDEX IF NOT EXISTS idx_missions_status ON missions(status);
   CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 `);
+
+const migrations = [
+  'ALTER TABLE missions ADD COLUMN parent_mission_id TEXT',
+  'ALTER TABLE missions ADD COLUMN callback_url TEXT',
+  'CREATE INDEX IF NOT EXISTS idx_missions_parent ON missions(parent_mission_id)',
+];
+for (const sql of migrations) {
+  try { db.exec(sql); } catch { /* colonne/index déjà existant */ }
+}

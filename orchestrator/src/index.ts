@@ -13,8 +13,10 @@ import { createStatsRouter } from './routes/stats.js';
 import { createTasksRouter } from './routes/tasks.js';
 import { createSkillsRouter } from './routes/skills.js';
 import { createMemoryRouter } from './routes/memory.js';
+import { createSchedulesRouter } from './routes/schedules.js';
 import { seedLoyaltyAgents } from './seed-loyalty.js';
 import { autoSetup } from './setup.js';
+import { startScheduler } from './scheduler.js';
 import type { Mission } from './types.js';
 
 autoSetup();
@@ -187,9 +189,13 @@ app.use('/api/skills', createSkillsRouter());
 // ====== MEMORY ======
 app.use('/api/memory', createMemoryRouter());
 
+// ====== SCHEDULES ======
+app.use('/api/schedules', createSchedulesRouter());
+
 // Healthcheck
 app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Max OS — 1 orchestrator running on :${PORT}`);
+  startScheduler();
 });

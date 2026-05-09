@@ -13,6 +13,8 @@ export interface Mission {
   input: string;
   status: 'running' | 'done' | 'failed';
   source_channel?: string;
+  parent_mission_id?: string;
+  callback_url?: string;
   created_at: number;
   finished_at?: number;
   cost_usd?: number;
@@ -58,6 +60,18 @@ export interface Skill {
   source: string;
   active: number;
   yaml_def?: string;
+  created_at: number;
+}
+
+export interface Schedule {
+  id: string;
+  name: string;
+  agent_name: string;
+  input_template: string;
+  cron_expr: string;
+  active: number;
+  last_run_at?: number;
+  last_mission_id?: string;
   created_at: number;
 }
 
