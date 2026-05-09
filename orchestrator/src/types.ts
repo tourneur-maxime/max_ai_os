@@ -36,6 +36,31 @@ export interface ChannelConfig {
   allowedChatIds?: number[];
 }
 
+export interface Task {
+  id: string;
+  title: string;
+  description?: string;
+  agent_name?: string;
+  status: 'backlog' | 'todo' | 'doing' | 'done';
+  mission_id?: string;
+  domain?: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface Skill {
+  id: string;
+  name: string;
+  description?: string;
+  command: string;
+  agent_name?: string;
+  category: string;
+  source: string;
+  active: number;
+  yaml_def?: string;
+  created_at: number;
+}
+
 export interface RemoteToken {
   id: string;
   client_name: string;

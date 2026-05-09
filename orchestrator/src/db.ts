@@ -45,6 +45,32 @@ db.exec(`
     last_called_at INTEGER
   );
 
+  CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    agent_name TEXT,
+    status TEXT NOT NULL DEFAULT 'backlog',
+    mission_id TEXT,
+    domain TEXT DEFAULT 'ops',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS skills (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    command TEXT NOT NULL,
+    agent_name TEXT,
+    category TEXT DEFAULT 'Dev',
+    source TEXT DEFAULT 'Custom',
+    active INTEGER NOT NULL DEFAULT 1,
+    yaml_def TEXT,
+    created_at INTEGER NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_events_mission ON events(mission_id);
   CREATE INDEX IF NOT EXISTS idx_missions_status ON missions(status);
+  CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 `);

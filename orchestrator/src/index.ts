@@ -1,13 +1,17 @@
 import express from 'express';
 import { json } from 'express';
-import { readdirSync, existsSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import { db } from './db.js';
 import { spawnAgent, sendInput, killMission, getAgentConfig } from './spawn.js';
-import { addClient } from './sse.js';
+import { addClient, addGlobalClient } from './sse.js';
 import { setupChannels } from './channels/index.js';
 import { createRemoteRouter } from './remote/routes.js';
+import { createStatsRouter } from './routes/stats.js';
+import { createTasksRouter } from './routes/tasks.js';
+import { createSkillsRouter } from './routes/skills.js';
+import { createMemoryRouter } from './routes/memory.js';
 import type { Mission } from './types.js';
 
 const app = express();
@@ -15,10 +19,9 @@ const PORT = parseInt(process.env.PORT ?? '9000', 10);
 
 app.use(json());
 
-// CORS for Nuxt frontend (dev)
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', process.env.FRONTEND_URL ?? 'http://localhost:3000');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') {
     res.sendStatus(200);
@@ -27,9 +30,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// ====== MAIN API ======
+// ====== MISSIONS ======
 
-// POST /api/agents/spawn
 app.post('/api/agents/spawn', (req, res) => {
   const { agent_name, mission } = req.body as { agent_name: string; mission: string };
   if (!agent_name || !mission) {
@@ -41,7 +43,6 @@ app.post('/api/agents/spawn', (req, res) => {
   res.json({ missionId });
 });
 
-// GET /api/missions/:id
 app.get('/api/missions/:id', (req, res) => {
   const mission = db.prepare('SELECT * FROM missions WHERE id = ?').get(req.params.id) as Mission | undefined;
   if (!mission) {
@@ -52,20 +53,17 @@ app.get('/api/missions/:id', (req, res) => {
   res.json({ mission, events });
 });
 
-// GET /api/missions — list
 app.get('/api/missions', (_req, res) => {
   const missions = db.prepare('SELECT * FROM missions ORDER BY created_at DESC LIMIT 100').all() as Mission[];
   res.json(missions);
 });
 
-// POST /api/agents/:id/send
 app.post('/api/agents/:id/send', (req, res) => {
   const { input } = req.body as { input: string };
   const sent = sendInput(req.params.id, input);
   res.json({ sent });
 });
 
-// GET /api/missions/:id/output — final result text
 app.get('/api/missions/:id/output', (req, res) => {
   const row = db.prepare(
     "SELECT payload FROM events WHERE mission_id = ? AND type = 'result' ORDER BY timestamp DESC LIMIT 1"
@@ -74,13 +72,11 @@ app.get('/api/missions/:id/output', (req, res) => {
   res.json({ output: parsed?.result ?? null });
 });
 
-// DELETE /api/missions/:id
 app.delete('/api/missions/:id', (req, res) => {
   const killed = killMission(req.params.id);
   res.json({ killed });
 });
 
-// SSE stream per mission
 app.get('/api/missions/:id/stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -88,17 +84,57 @@ app.get('/api/missions/:id/stream', (req, res) => {
   addClient(req.params.id, res);
 });
 
-// GET /api/agents — list from ~/.mos/agents directory
+// ====== GLOBAL SSE ======
+
+app.get('/api/events/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  addGlobalClient(res);
+});
+
+// ====== AGENTS ======
+
 app.get('/api/agents', (_req, res) => {
-  const agentsDir = join(homedir(), '.mos', 'agents');
-  if (!existsSync(agentsDir)) {
+  const agentsDir = path.join(os.homedir(), '.mos', 'agents');
+  if (!fs.existsSync(agentsDir)) {
     res.json([]);
     return;
   }
-  const agents = readdirSync(agentsDir)
-    .filter((f: string) => existsSync(join(agentsDir, f, 'config.json')))
+  const agents = fs.readdirSync(agentsDir)
+    .filter((f: string) => fs.existsSync(path.join(agentsDir, f, 'config.json')))
     .map((name: string) => getAgentConfig(name));
   res.json(agents);
+});
+
+app.put('/api/agents/:name/config', (req, res) => {
+  const { name } = req.params;
+  const { config, systemPrompt } = req.body as { config?: Record<string, unknown>; systemPrompt?: string };
+  const agentDir = path.join(os.homedir(), '.mos', 'agents', name);
+  fs.mkdirSync(path.join(agentDir, 'memory'), { recursive: true });
+  if (config) {
+    fs.writeFileSync(path.join(agentDir, 'config.json'), JSON.stringify(config, null, 2), 'utf-8');
+  }
+  if (systemPrompt !== undefined) {
+    fs.writeFileSync(path.join(agentDir, 'system-prompt.md'), systemPrompt, 'utf-8');
+  }
+  res.json({ ok: true });
+});
+
+app.delete('/api/agents/:name', (req, res) => {
+  const agentDir = path.join(os.homedir(), '.mos', 'agents', req.params.name);
+  if (!fs.existsSync(agentDir)) {
+    res.status(404).json({ error: 'Agent not found' });
+    return;
+  }
+  fs.rmSync(agentDir, { recursive: true, force: true });
+  res.json({ ok: true });
+});
+
+app.get('/api/agents/:name/system-prompt', (req, res) => {
+  const spPath = path.join(os.homedir(), '.mos', 'agents', req.params.name, 'system-prompt.md');
+  const content = fs.existsSync(spPath) ? fs.readFileSync(spPath, 'utf-8') : '';
+  res.json({ content });
 });
 
 // ====== CHANNELS ======
@@ -108,6 +144,18 @@ app.use('/api/channels', channelRouter);
 // ====== REMOTE CONTROL ======
 const remoteRouter = createRemoteRouter();
 app.use('/api/remote', remoteRouter);
+
+// ====== STATS ======
+app.use('/api/stats', createStatsRouter());
+
+// ====== TASKS ======
+app.use('/api/tasks', createTasksRouter());
+
+// ====== SKILLS ======
+app.use('/api/skills', createSkillsRouter());
+
+// ====== MEMORY ======
+app.use('/api/memory', createMemoryRouter());
 
 // Healthcheck
 app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));

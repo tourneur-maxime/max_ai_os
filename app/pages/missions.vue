@@ -4,30 +4,27 @@
     <div class="page-header">
       <div>
         <div class="page-title">Missions</div>
-        <div class="page-sub">All agent missions · 218 this month</div>
-      </div>
-      <div style="margin-left:auto;display:flex;gap:8px;">
-        <button class="btn sm">Export CSV</button>
+        <div class="page-sub">All agent missions · {{ missions.length }} au total</div>
       </div>
     </div>
 
     <!-- Stats row -->
     <div class="stats-band">
       <div class="stat-card">
-        <div class="stat-value">218</div>
-        <div class="stat-label">Missions this month</div>
+        <div class="stat-value">{{ missions.length }}</div>
+        <div class="stat-label">Missions totales</div>
       </div>
       <div class="stat-card featured">
-        <div class="stat-value">$24.18</div>
-        <div class="stat-label">Total cost</div>
+        <div class="stat-value">{{ formatCost(totalCost) }}</div>
+        <div class="stat-label">Coût total</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value">4.7M</div>
-        <div class="stat-label">Tokens used</div>
+        <div class="stat-value">{{ formatTokens(null, totalTokens) }}</div>
+        <div class="stat-label">Tokens utilisés</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value">4m 12s</div>
-        <div class="stat-label">Avg duration</div>
+        <div class="stat-value">{{ missions.filter(m => m.status === 'running').length }}</div>
+        <div class="stat-label">En cours</div>
       </div>
     </div>
 
@@ -46,21 +43,22 @@
           <thead>
             <tr>
               <th>ID</th>
-              <th>Title</th>
+              <th>Mission</th>
               <th>Agent</th>
-              <th>Started</th>
-              <th>Duration</th>
-              <th>Cost</th>
+              <th>Démarré</th>
+              <th>Durée</th>
+              <th>Coût</th>
               <th>Tokens</th>
-              <th>Status</th>
+              <th>Statut</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             <tr
               v-for="m in filteredMissions"
               :key="m.id"
-              :class="{ selected: selectedMission?.id === m.id }"
-              @click="selectedMission = m"
+              :class="{ selected: selectedId === m.id }"
+              @click="selectMission(m)"
               style="cursor:pointer"
             >
               <td class="mono" style="color:var(--fg-dimmer);font-size:10.5px;">{{ m.id }}</td>
@@ -68,7 +66,7 @@
               <td>
                 <div style="display:flex;align-items:center;gap:6px;">
                   <span :class="['av', m.agentCls]" style="width:18px;height:18px;font-size:8px;">{{ m.agentAv }}</span>
-                  <span class="mono" style="font-size:11px;">{{ m.agent }}</span>
+                  <span class="mono" style="font-size:11px;">{{ m.agent_name }}</span>
                 </div>
               </td>
               <td class="mono" style="font-size:11px;color:var(--fg-dim)">{{ m.started }}</td>
@@ -81,9 +79,15 @@
                   {{ m.status }}
                 </span>
               </td>
+              <td>
+                <button v-if="m.status === 'running'" class="btn sm" style="padding:2px 8px;font-size:10px;" @click.stop="killMission(m.id)">Kill</button>
+              </td>
             </tr>
           </tbody>
         </table>
+        <div v-if="missions.length === 0" style="padding:40px;text-align:center;color:var(--fg-dimmer);font-size:13px;">
+          Aucune mission. Lance un agent pour commencer.
+        </div>
       </div>
 
       <!-- Detail panel -->
@@ -98,7 +102,7 @@
             <span class="dot"></span>
             {{ selectedMission.status }}
           </span>
-          <button class="modal-close" @click="selectedMission = null">✕</button>
+          <button class="modal-close" @click="selectedId = null">✕</button>
         </div>
         <div v-if="selectedMission" class="slideover-body">
           <!-- Mini stats -->
@@ -125,7 +129,8 @@
           <div style="margin-top:16px;">
             <!-- Timeline tab -->
             <div v-if="activeTab === 'Timeline'" class="timeline">
-              <div v-for="ev in selectedMission.events" :key="ev.time + ev.msg" class="timeline-event">
+              <div v-if="parsedEvents.length === 0" style="color:var(--fg-dimmer);font-size:12px;">Aucun événement.</div>
+              <div v-for="ev in parsedEvents" :key="ev.time + ev.msg + ev.typeLabel" class="timeline-event">
                 <div :class="['tl-dot', ev.type]"></div>
                 <div class="tl-content">
                   <div class="tl-time mono">{{ ev.time }}</div>
@@ -150,142 +155,224 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 
 definePageMeta({ layout: 'default' })
 
+const { $fetch, useSSE } = useApi()
+
+interface RawMission {
+  id: string
+  agent_name: string
+  input: string
+  status: string
+  source_channel: string | null
+  created_at: number
+  finished_at: number | null
+  cost_usd: number | null
+  tokens_in: number | null
+  tokens_out: number | null
+}
+
+interface RawEvent {
+  id: number
+  mission_id: string
+  type: string
+  timestamp: number
+  payload: string
+}
+
+const missions = ref<RawMission[]>([])
 const search = ref('')
 const activeFilter = ref('All')
-const selectedMission = ref<any>(null)
+const selectedId = ref<string | null>(null)
 const activeTab = ref('Timeline')
+const missionEvents = ref<RawEvent[]>([])
+const missionOutput = ref<string | null>(null)
+let sseClose: (() => void) | null = null
 
-const filters = ['All', 'Active', 'Done', 'Failed', 'Interrupted']
+const filters = ['All', 'Active', 'Done', 'Failed']
 const tabs = ['Timeline', 'Output', 'Logs']
 
-const missions = [
-  {
-    id: 'M-218', title: 'Update Kanban component with DnD', agent: 'coder_07', agentAv: 'C', agentCls: 'green',
-    started: '09:14', duration: '3m 42s', cost: '$0.18', tokens: '84k', status: 'done', statusCls: 'good',
-    events: [
-      { type: 'pre', typeLabel: 'PreToolUse', time: '09:14:02', msg: 'read_file src/Kanban.tsx' },
-      { type: 'post', typeLabel: 'PostToolUse', time: '09:14:03', msg: '412 lines read · 8ms' },
-      { type: 'pre', typeLabel: 'PreToolUse', time: '09:14:18', msg: 'write_file src/Kanban.tsx' },
-      { type: 'post', typeLabel: 'PostToolUse', time: '09:14:19', msg: 'file updated · 14ms' },
-      { type: 'stop', typeLabel: 'Stop', time: '09:17:44', msg: 'natural stop · mission complete' },
-    ],
-    output: '<h3>Mission Complete</h3><p>Updated <code>src/Kanban.tsx</code> with native HTML5 drag-and-drop. Added column drop zones, card dragging, and visual feedback during drag operations. 412 → 489 lines.</p>',
-    logs: JSON.stringify({ mission: 'M-218', agent: 'coder_07', events: 5, tokens_in: 62140, tokens_out: 21820, cost_usd: 0.18 }, null, 2)
-  },
-  {
-    id: 'M-217', title: 'Research WebAuthn for mobile auth', agent: 'researcher_42', agentAv: 'R', agentCls: 'blue',
-    started: '08:52', duration: '6m 18s', cost: '$0.42', tokens: '210k', status: 'done', statusCls: 'good',
-    events: [
-      { type: 'pre', typeLabel: 'PreToolUse', time: '08:52:01', msg: 'web_search "WebAuthn mobile 2024"' },
-      { type: 'post', typeLabel: 'PostToolUse', time: '08:52:08', msg: '12 results · 240ms' },
-      { type: 'pre', typeLabel: 'PreToolUse', time: '08:53:14', msg: 'web_fetch developer.mozilla.org/WebAuthn' },
-      { type: 'stop', typeLabel: 'Stop', time: '08:58:19', msg: 'natural stop · report written' },
-    ],
-    output: '<h3>WebAuthn Research Summary</h3><p>WebAuthn is supported on 97% of modern mobile browsers. Key findings: passkeys offer best UX, FIDO2 requires server-side implementation, React Native support via <code>@simplewebauthn/browser</code>.</p>',
-    logs: JSON.stringify({ mission: 'M-217', agent: 'researcher_42', events: 14, tokens_in: 168420, tokens_out: 41580, cost_usd: 0.42 }, null, 2)
-  },
-  {
-    id: 'M-216', title: 'Review PR #142 — Auth refactor', agent: 'reviewer_19', agentAv: 'Rv', agentCls: '',
-    started: '08:30', duration: '2m 05s', cost: '$0.09', tokens: '42k', status: 'done', statusCls: 'good',
-    events: [
-      { type: 'pre', typeLabel: 'PreToolUse', time: '08:30:01', msg: 'read_file src/auth/index.ts' },
-      { type: 'post', typeLabel: 'PostToolUse', time: '08:30:02', msg: 'file read · 6ms' },
-      { type: 'stop', typeLabel: 'Stop', time: '08:32:05', msg: 'natural stop · review posted' },
-    ],
-    output: '<h3>PR #142 Review</h3><p>Code quality: good. Found 2 minor issues: missing error handling in <code>refreshToken()</code>, potential race condition in concurrent auth calls. Approved with suggestions.</p>',
-    logs: JSON.stringify({ mission: 'M-216', agent: 'reviewer_19', events: 6, tokens_in: 34200, tokens_out: 7800, cost_usd: 0.09 }, null, 2)
-  },
-  {
-    id: 'M-215', title: 'Write blog post on agentic systems', agent: '_main', agentAv: '_M', agentCls: 'salmon',
-    started: '07:45', duration: '11m 30s', cost: '$0.94', tokens: '482k', status: 'done', statusCls: 'good',
-    events: [
-      { type: 'spawn', typeLabel: 'PreToolUse', time: '07:45:01', msg: 'spawn researcher_42 · context gathering' },
-      { type: 'post', typeLabel: 'PostToolUse', time: '07:52:14', msg: 'research done · 3200 tokens' },
-      { type: 'stop', typeLabel: 'Stop', time: '07:56:30', msg: 'natural stop · blog post saved' },
-    ],
-    output: '<h3>Blog Post Draft</h3><p>"The Rise of Local-First Agentic Systems" — 1,842 words written. Covers: architecture patterns, cost optimization, privacy benefits of local execution. Ready for review.</p>',
-    logs: JSON.stringify({ mission: 'M-215', agent: '_main', events: 22, tokens_in: 384000, tokens_out: 98000, cost_usd: 0.94 }, null, 2)
-  },
-  {
-    id: 'M-214', title: 'Fix TypeScript errors in dashboard', agent: 'coder_07', agentAv: 'C', agentCls: 'green',
-    started: '07:10', duration: '4m 52s', cost: '$0.22', tokens: '108k', status: 'done', statusCls: 'good',
-    events: [
-      { type: 'pre', typeLabel: 'PreToolUse', time: '07:10:01', msg: 'run_command tsc --noEmit' },
-      { type: 'post', typeLabel: 'PostToolUse', time: '07:10:04', msg: '14 errors found' },
-      { type: 'stop', typeLabel: 'Stop', time: '07:14:53', msg: 'natural stop · 0 errors' },
-    ],
-    output: '<h3>TypeScript Fix</h3><p>Fixed 14 type errors in dashboard components. Main issues: missing type annotations on D3 callbacks, incorrect generic types on Pinia stores. All types now strict-compliant.</p>',
-    logs: JSON.stringify({ mission: 'M-214', agent: 'coder_07', events: 18, tokens_in: 84200, tokens_out: 23800, cost_usd: 0.22 }, null, 2)
-  },
-  {
-    id: 'M-213', title: 'Update memory patterns from last session', agent: 'memory_03', agentAv: 'M', agentCls: 'purple',
-    started: '06:00', duration: '1m 14s', cost: '$0.04', tokens: '18k', status: 'done', statusCls: 'good',
-    events: [
-      { type: 'pre', typeLabel: 'PreToolUse', time: '06:00:01', msg: 'read_file ~/agents/_main/memory/patterns.md' },
-      { type: 'stop', typeLabel: 'Stop', time: '06:01:14', msg: 'natural stop · patterns updated' },
-    ],
-    output: '<h3>Memory Update</h3><p>Added 3 new behavioral patterns detected from session 2026-05-07. Updated cost optimization heuristics. Memory usage: 34k / 100k tokens.</p>',
-    logs: JSON.stringify({ mission: 'M-213', agent: 'memory_03', events: 4, tokens_in: 14400, tokens_out: 3600, cost_usd: 0.04 }, null, 2)
-  },
-  {
-    id: 'M-212', title: 'Plan sprint tasks for week 19', agent: 'planner_04', agentAv: 'Pl', agentCls: '',
-    started: 'May 7', duration: '8m 02s', cost: '$0.56', tokens: '284k', status: 'done', statusCls: 'good',
-    events: [
-      { type: 'pre', typeLabel: 'PreToolUse', time: '09:00:01', msg: 'read_file ~/projects/backlog.md' },
-      { type: 'stop', typeLabel: 'Stop', time: '09:08:02', msg: 'natural stop · sprint planned' },
-    ],
-    output: '<h3>Sprint 19 Plan</h3><p>22 tasks identified, 14 scheduled for this week. Priority: WebAuthn auth (5 tasks), Dashboard D3 charts (4 tasks), Memory compaction (3 tasks). Estimated cost: $2.40.</p>',
-    logs: JSON.stringify({ mission: 'M-212', agent: 'planner_04', events: 12, tokens_in: 224000, tokens_out: 60000, cost_usd: 0.56 }, null, 2)
-  },
-  {
-    id: 'M-211', title: 'Shell: cleanup old log files', agent: 'shell_01', agentAv: 'Sh', agentCls: '',
-    started: 'May 7', duration: '0m 18s', cost: '$0.01', tokens: '4k', status: 'done', statusCls: 'good',
-    events: [
-      { type: 'pre', typeLabel: 'PreToolUse', time: '23:00:01', msg: 'run_command find ~/logs -mtime +30 -delete' },
-      { type: 'stop', typeLabel: 'Stop', time: '23:00:18', msg: 'natural stop · 42 files deleted' },
-    ],
-    output: '<h3>Cleanup Done</h3><p>Deleted 42 log files older than 30 days. Freed 284MB disk space.</p>',
-    logs: JSON.stringify({ mission: 'M-211', agent: 'shell_01', events: 2, tokens_in: 3200, tokens_out: 800, cost_usd: 0.01 }, null, 2)
-  },
-  {
-    id: 'M-210', title: 'Debug production error in API gateway', agent: 'coder_07', agentAv: 'C', agentCls: 'green',
-    started: 'May 7', duration: '18m 44s', cost: '$1.24', tokens: '640k', status: 'interrupted', statusCls: 'warn',
-    events: [
-      { type: 'pre', typeLabel: 'PreToolUse', time: '14:22:01', msg: 'read_file src/gateway/index.ts' },
-      { type: 'stop', typeLabel: 'Stop', time: '14:40:44', msg: 'interrupted · user cancelled' },
-    ],
-    output: '<h3>Debug Session</h3><p>Identified 3 potential causes for the 504 timeout. Root cause appears to be in the Redis connection pooling. Session interrupted before fix was complete.</p>',
-    logs: JSON.stringify({ mission: 'M-210', agent: 'coder_07', events: 34, tokens_in: 504000, tokens_out: 136000, cost_usd: 1.24, status: 'interrupted' }, null, 2)
-  },
-  {
-    id: 'M-209', title: 'Summarize research on RAG architectures', agent: 'researcher_42', agentAv: 'R', agentCls: 'blue',
-    started: 'May 6', duration: '9m 22s', cost: '$0.68', tokens: '340k', status: 'done', statusCls: 'good',
-    events: [
-      { type: 'pre', typeLabel: 'PreToolUse', time: '10:15:01', msg: 'web_search "RAG architecture 2024 best practices"' },
-      { type: 'stop', typeLabel: 'Stop', time: '10:24:22', msg: 'natural stop · summary saved' },
-    ],
-    output: '<h3>RAG Architecture Summary</h3><p>Key findings: hybrid search (BM25 + dense vectors) outperforms pure dense by 12%, re-ranking with cross-encoders adds 8% relevance, chunk size 512 tokens optimal for most tasks.</p>',
-    logs: JSON.stringify({ mission: 'M-209', agent: 'researcher_42', events: 16, tokens_in: 272000, tokens_out: 68000, cost_usd: 0.68 }, null, 2)
-  },
-]
+function agentAvatar(name: string): string {
+  if (name === '_main') return '_M'
+  const parts = name.split('_')
+  return parts[0].slice(0, 2).toUpperCase()
+}
+
+function agentClass(name: string): string {
+  if (name === '_main') return 'salmon'
+  if (name.startsWith('coder')) return 'green'
+  if (name.startsWith('researcher')) return 'blue'
+  if (name.startsWith('memory')) return 'purple'
+  return ''
+}
+
+function formatTs(ts: number): string {
+  const d = new Date(ts)
+  const now = new Date()
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  }
+  return d.toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })
+}
+
+function formatDur(ms: number): string {
+  const s = Math.floor(ms / 1000)
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  return `${m}m ${s % 60}s`
+}
+
+function formatCost(usd: number | null): string {
+  if (!usd) return '—'
+  return `$${usd.toFixed(3)}`
+}
+
+function formatTokens(_a: number | null, total: number | null): string {
+  const t = total ?? 0
+  if (t >= 1_000_000) return `${(t / 1_000_000).toFixed(1)}M`
+  if (t >= 1000) return `${Math.round(t / 1000)}k`
+  return String(t)
+}
+
+function statusClass(status: string): string {
+  if (status === 'done') return 'good'
+  if (status === 'running') return 'accent'
+  if (status === 'failed') return 'bad'
+  return 'warn'
+}
+
+const totalCost = computed(() => missions.value.reduce((acc, m) => acc + (m.cost_usd ?? 0), 0))
+const totalTokens = computed(() => missions.value.reduce((acc, m) => acc + (m.tokens_in ?? 0) + (m.tokens_out ?? 0), 0))
+
+const displayMissions = computed(() => missions.value.map(m => ({
+  ...m,
+  title: m.input.length > 65 ? m.input.slice(0, 65) + '…' : m.input,
+  agentAv: agentAvatar(m.agent_name),
+  agentCls: agentClass(m.agent_name),
+  started: formatTs(m.created_at),
+  duration: m.finished_at ? formatDur(m.finished_at - m.created_at) : (m.status === 'running' ? '…' : '—'),
+  cost: formatCost(m.cost_usd),
+  tokens: formatTokens(null, (m.tokens_in ?? 0) + (m.tokens_out ?? 0)),
+  statusCls: statusClass(m.status),
+})))
 
 const filteredMissions = computed(() => {
-  let ms = missions
+  let ms = displayMissions.value
   if (activeFilter.value !== 'All') {
-    const statusMap: Record<string, string> = {
-      'Active': 'active', 'Done': 'done', 'Failed': 'failed', 'Interrupted': 'interrupted'
-    }
-    ms = ms.filter(m => m.status === statusMap[activeFilter.value])
+    const map: Record<string, string> = { 'Active': 'running', 'Done': 'done', 'Failed': 'failed' }
+    ms = ms.filter(m => m.status === map[activeFilter.value])
   }
   if (search.value) {
     const q = search.value.toLowerCase()
-    ms = ms.filter(m => m.title.toLowerCase().includes(q) || m.id.toLowerCase().includes(q) || m.agent.toLowerCase().includes(q))
+    ms = ms.filter(m => m.title.toLowerCase().includes(q) || m.id.toLowerCase().includes(q) || m.agent_name.toLowerCase().includes(q))
   }
   return ms
+})
+
+const parsedEvents = computed(() => missionEvents.value.map(ev => {
+  const time = new Date(ev.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  let payload: Record<string, unknown> = {}
+  try { payload = JSON.parse(ev.payload) } catch { /* ignore */ }
+
+  if (ev.type === 'assistant') {
+    const content = (payload.message as { content?: { type: string; text?: string; name?: string }[] })?.content ?? []
+    const toolUse = content.find(b => b.type === 'tool_use')
+    if (toolUse) return { type: 'pre', typeLabel: 'ToolUse', time, msg: toolUse.name ?? '' }
+    const text = content.find(b => b.type === 'text')
+    return { type: 'post', typeLabel: 'Assistant', time, msg: ((text?.text ?? '') as string).slice(0, 100) }
+  }
+  if (ev.type === 'user') {
+    const content = (payload.message as { content?: { type: string; content?: unknown }[] })?.content ?? []
+    const tr = content.find(b => b.type === 'tool_result')
+    return { type: 'post', typeLabel: 'ToolResult', time, msg: String(tr?.content ?? '').slice(0, 100) }
+  }
+  if (ev.type === 'result') {
+    return { type: 'stop', typeLabel: 'Result', time, msg: (payload.subtype as string) ?? 'success' }
+  }
+  return { type: 'pre', typeLabel: ev.type, time, msg: '' }
+}))
+
+const selectedMission = computed(() => {
+  if (!selectedId.value) return null
+  const base = displayMissions.value.find(m => m.id === selectedId.value)
+  if (!base) return null
+  return {
+    ...base,
+    events: parsedEvents.value,
+    output: missionOutput.value
+      ? `<p style="white-space:pre-wrap">${missionOutput.value.replace(/</g, '&lt;')}</p>`
+      : '<p style="color:var(--fg-dimmer)">Pas encore de résultat.</p>',
+    logs: JSON.stringify({
+      id: base.id, agent: base.agent_name,
+      cost_usd: base.cost_usd, tokens_in: base.tokens_in, tokens_out: base.tokens_out,
+      status: base.status, created_at: base.created_at, finished_at: base.finished_at,
+    }, null, 2),
+  }
+})
+
+async function fetchMissions() {
+  missions.value = await $fetch<RawMission[]>('/api/missions')
+}
+
+async function fetchMissionDetail(id: string) {
+  try {
+    const { events } = await $fetch<{ mission: RawMission; events: RawEvent[] }>(`/api/missions/${id}`)
+    missionEvents.value = events
+    const { output } = await $fetch<{ output: string | null }>(`/api/missions/${id}/output`)
+    missionOutput.value = output
+  } catch { /* ignore */ }
+}
+
+async function killMission(id: string) {
+  await $fetch(`/api/missions/${id}`, { method: 'DELETE' })
+  await fetchMissions()
+  if (selectedId.value === id) selectedId.value = null
+}
+
+function selectMission(m: { id: string }) {
+  selectedId.value = m.id
+  activeTab.value = 'Timeline'
+}
+
+watch(selectedId, async (id) => {
+  if (sseClose) { sseClose(); sseClose = null }
+  missionEvents.value = []
+  missionOutput.value = null
+  if (!id) return
+  await fetchMissionDetail(id)
+
+  const m = missions.value.find(x => x.id === id)
+  if (m?.status === 'running') {
+    sseClose = useSSE(`/api/missions/${id}/stream`, async (data) => {
+      if (data.type === 'mission_complete') {
+        await fetchMissions()
+        await fetchMissionDetail(id)
+        if (sseClose) { sseClose(); sseClose = null }
+      } else {
+        missionEvents.value.push({
+          id: Date.now(),
+          mission_id: id,
+          type: data.type as string,
+          timestamp: (data.timestamp as number) ?? Date.now(),
+          payload: JSON.stringify(data),
+        })
+      }
+    })
+  }
+})
+
+let pollInterval: ReturnType<typeof setInterval>
+
+onMounted(async () => {
+  await fetchMissions()
+  pollInterval = setInterval(fetchMissions, 5000)
+})
+
+onUnmounted(() => {
+  clearInterval(pollInterval)
+  if (sseClose) sseClose()
 })
 </script>
 

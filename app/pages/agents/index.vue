@@ -5,7 +5,7 @@
       <div class="col-left">
         <div class="agents-list-header">
           <span class="page-title">Agents</span>
-          <span class="count-badge">{{ agents.length }} / 12</span>
+          <span class="count-badge">{{ agents.length }} agents</span>
         </div>
         <div class="agents-search">
           <input v-model="search" type="text" class="input" placeholder="Search agents…" />
@@ -15,21 +15,20 @@
             v-for="ag in filteredAgents"
             :key="ag.name"
             :class="['agent-item', { selected: selectedName === ag.name }]"
-            @click="selectedName = ag.name"
+            @click="selectAgent(ag.name)"
           >
-            <div :class="['av', ag.cls]">{{ ag.av }}</div>
+            <div :class="['av', agentClass(ag.name)]">{{ agentAvatar(ag.name) }}</div>
             <div class="agent-item-info">
               <div class="agent-item-name mono">{{ ag.name }}</div>
               <div class="agent-item-sub">{{ ag.model }}</div>
             </div>
             <div class="agent-item-right">
-              <div class="agent-item-missions">{{ ag.missions }}</div>
-              <span :class="['status-dot', ag.active ? 'active' : '']"></span>
+              <span class="status-dot"></span>
             </div>
           </div>
         </div>
         <div class="agents-list-footer">
-          <button class="btn primary" style="width:100%">+ New agent</button>
+          <button class="btn primary" style="width:100%" @click="showNewAgent = true">+ New agent</button>
         </div>
       </div>
 
@@ -38,31 +37,27 @@
         <div class="agent-form-wrap">
           <!-- Form header -->
           <div class="agent-form-header">
-            <div :class="['av', 'xl', currentAgent.cls]">{{ currentAgent.av }}</div>
+            <div :class="['av', 'xl', agentClass(currentAgent.name)]">{{ agentAvatar(currentAgent.name) }}</div>
             <div>
               <div class="mono" style="font-size:15px;font-weight:700;color:var(--fg)">{{ currentAgent.name }}</div>
-              <div style="font-size:11.5px;color:var(--fg-dim)">{{ currentAgent.sub || currentAgent.model + ' · ' + currentAgent.missions + ' missions' }}</div>
+              <div style="font-size:11.5px;color:var(--fg-dim)">{{ currentAgent.model }}</div>
             </div>
-            <span :class="['badge', currentAgent.active ? 'good' : '']" style="margin-left:auto">
-              <span class="dot"></span>
-              {{ currentAgent.active ? 'active' : 'idle' }}
-            </span>
-            <NuxtLink :to="`/agents/${currentAgent.name}/chat`" class="btn sm primary">Open chat →</NuxtLink>
+            <NuxtLink :to="`/agents/${currentAgent.name}/chat`" class="btn sm primary" style="margin-left:auto">Open chat →</NuxtLink>
           </div>
 
           <!-- IDENTITY -->
           <div class="section-title">Identity</div>
           <div class="form-group">
             <label class="label">Name</label>
-            <input type="text" class="input mono" :value="currentAgent.name" />
+            <input type="text" class="input mono" v-model="form.name" />
           </div>
           <div class="form-group">
             <label class="label">System prompt</label>
-            <textarea class="textarea mono" style="height:220px" :value="systemPrompts[currentAgent.name] || defaultPrompt"></textarea>
+            <textarea class="textarea mono" style="height:220px" v-model="form.systemPrompt"></textarea>
           </div>
           <div class="form-group">
             <label class="label">Working directory</label>
-            <input type="text" class="input mono" :value="workingDirs[currentAgent.name] || '~/projects'" />
+            <input type="text" class="input mono" v-model="form.cwd" />
           </div>
 
           <!-- MODEL -->
@@ -70,29 +65,13 @@
           <div class="form-row">
             <div class="form-group">
               <label class="label">Model</label>
-              <select class="select" :value="currentAgent.model">
+              <select class="select" v-model="form.model">
                 <optgroup label="Anthropic">
-                  <option>claude-opus-4</option>
-                  <option>claude-sonnet-4.5</option>
-                  <option>claude-haiku-4</option>
-                </optgroup>
-                <optgroup label="OpenAI">
-                  <option>gpt-5</option>
-                  <option>gpt-5-mini</option>
-                  <option>gpt-4o</option>
-                  <option>gpt-4o-mini</option>
+                  <option value="claude-opus-4-7">claude-opus-4-7</option>
+                  <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+                  <option value="claude-haiku-4-5-20251001">claude-haiku-4-5</option>
                 </optgroup>
               </select>
-            </div>
-            <div class="form-group" style="max-width:180px;">
-              <label class="label">Plan Max</label>
-              <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
-                <label class="toggle">
-                  <input type="checkbox" :checked="currentAgent.name === '_main'" />
-                  <span class="slider"></span>
-                </label>
-                <span style="font-size:11.5px;color:var(--fg-dim)">Use plan max</span>
-              </div>
             </div>
           </div>
 
@@ -101,8 +80,8 @@
           <div class="form-group">
             <label class="label">Permission Mode</label>
             <div class="radio-group">
-              <label v-for="perm in permModes" :key="perm.value" :class="['radio-item', { selected: selectedPerm === perm.value }]" @click="selectedPerm = perm.value">
-                <input type="radio" name="perm" :value="perm.value" :checked="selectedPerm === perm.value" />
+              <label v-for="perm in permModes" :key="perm.value" :class="['radio-item', { selected: form.permissionMode === perm.value }]" @click="form.permissionMode = perm.value">
+                <input type="radio" name="perm" :value="perm.value" :checked="form.permissionMode === perm.value" />
                 <div>
                   <div class="radio-label">{{ perm.label }}</div>
                   <div class="radio-desc">{{ perm.desc }}</div>
@@ -113,93 +92,15 @@
           <div class="form-group">
             <label class="label">Allowed tools</label>
             <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px;">
-              <span v-for="t in allowedTools" :key="t" class="chip">{{ t }}<span class="x" @click="removeAllowed(t)">×</span></span>
-              <button class="btn sm ghost" @click="addAllowed">+ Add</button>
+              <span v-for="t in form.allowedTools" :key="t" class="chip">{{ t }}<span class="x" @click="removeAllowed(t)">×</span></span>
+              <button class="btn sm ghost" @click="promptAddAllowed">+ Add</button>
             </div>
           </div>
           <div class="form-group">
             <label class="label">Denied tools</label>
             <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px;">
-              <span v-for="t in deniedTools" :key="t" class="chip deny">{{ t }}<span class="x" @click="removeDenied(t)">×</span></span>
-              <button class="btn sm ghost" @click="addDenied">+ Add</button>
-            </div>
-          </div>
-
-          <!-- CHANNELS -->
-          <div class="section-title">Channels</div>
-          <div class="channel-list">
-            <div class="channel-item">
-              <div class="channel-icon">✈</div>
-              <div class="channel-info">
-                <div class="channel-name">Telegram</div>
-                <div class="channel-sub">Send/receive messages</div>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" v-model="channels.telegram" />
-                <span class="slider"></span>
-              </label>
-            </div>
-            <div v-if="channels.telegram" class="channel-field">
-              <input type="text" class="input mono" placeholder="Chat ID (e.g. -1001234567890)" />
-            </div>
-            <div class="channel-item">
-              <div class="channel-icon">💬</div>
-              <div class="channel-info">
-                <div class="channel-name">WhatsApp</div>
-                <div class="channel-sub">WhatsApp Business API</div>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" v-model="channels.whatsapp" />
-                <span class="slider"></span>
-              </label>
-            </div>
-            <div class="channel-item">
-              <div class="channel-icon">🔗</div>
-              <div class="channel-info">
-                <div class="channel-name">Webhook</div>
-                <div class="channel-sub">HTTP POST on events</div>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" v-model="channels.webhook" />
-                <span class="slider"></span>
-              </label>
-            </div>
-            <div v-if="channels.webhook" class="channel-field">
-              <input type="text" class="input mono" placeholder="https://hooks.example.com/…" />
-            </div>
-            <div class="channel-item">
-              <div class="channel-icon">🟦</div>
-              <div class="channel-info">
-                <div class="channel-name">Teams</div>
-                <div class="channel-sub">Microsoft Teams connector</div>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" v-model="channels.teams" />
-                <span class="slider"></span>
-              </label>
-            </div>
-          </div>
-
-          <!-- REMOTE CONTROL -->
-          <div class="section-title">Remote control</div>
-          <div class="form-group">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-              <label class="toggle">
-                <input type="checkbox" v-model="remoteControl" />
-                <span class="slider"></span>
-              </label>
-              <span style="font-size:12px;color:var(--fg-dim)">Enable remote control via tunnel</span>
-            </div>
-            <div v-if="remoteControl">
-              <div class="form-group">
-                <label class="label">Tunnel URL</label>
-                <input type="text" class="input mono" value="https://maxos-main.trycloudflare.com" />
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-                <input type="text" class="input mono" value="sk-maxos-••••••••••••••" style="flex:1;" />
-                <button class="btn sm">↻ Regenerate</button>
-              </div>
-              <div class="info-box">Remote control allows authorized clients to send tasks to this agent via the tunnel URL. Keep your token secret.</div>
+              <span v-for="t in form.deniedTools" :key="t" class="chip deny">{{ t }}<span class="x" @click="removeDenied(t)">×</span></span>
+              <button class="btn sm ghost" @click="promptAddDenied">+ Add</button>
             </div>
           </div>
 
@@ -207,8 +108,8 @@
           <div class="form-footer">
             <span class="save-status">{{ saveStatus }}</span>
             <div style="display:flex;gap:8px;">
+              <button class="btn sm bad" @click="deleteAgent">Delete</button>
               <NuxtLink :to="`/agents/${currentAgent.name}/chat`" class="btn sm">Open chat</NuxtLink>
-              <button class="btn sm">Test prompt</button>
               <button class="btn sm primary" @click="handleSave">Save</button>
             </div>
           </div>
@@ -216,63 +117,65 @@
       </div>
 
       <div v-else class="col-right" style="display:flex;align-items:center;justify-content:center;color:var(--fg-dimmer);font-size:13px;">
-        Select an agent to edit its config
+        Sélectionne un agent pour éditer sa configuration
+      </div>
+    </div>
+
+    <!-- New agent modal -->
+    <div v-if="showNewAgent" class="modal-overlay" @click.self="showNewAgent = false">
+      <div class="modal" style="width:420px;">
+        <div class="modal-header">
+          <div style="font-size:14px;font-weight:600;">Nouvel agent</div>
+          <button class="modal-close" @click="showNewAgent = false">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="label">Nom (snake_case)</label>
+            <input type="text" class="input mono" v-model="newAgentName" placeholder="ex: coder_01" />
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button class="btn primary" @click="createAgent">Créer</button>
+            <button class="btn ghost" @click="showNewAgent = false">Annuler</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted, reactive } from 'vue'
 
 definePageMeta({ layout: 'default' })
 
-const agents = [
-  { name: '_main', model: 'gpt-5-mini', missions: 142, active: true, av: '_M', cls: 'salmon', sub: 'orchestrator · root agent · spawned 2d ago' },
-  { name: 'researcher_42', model: 'gpt-5', missions: 38, active: true, av: 'R', cls: 'blue', sub: '' },
-  { name: 'coder_07', model: 'claude-sonnet-4.5', missions: 67, active: true, av: 'C', cls: 'green', sub: '' },
-  { name: 'reviewer_19', model: 'gpt-5-mini', missions: 24, active: false, av: 'Rv', cls: '', sub: '' },
-  { name: 'memory_03', model: 'gpt-4o-mini', missions: 191, active: false, av: 'M', cls: 'purple', sub: '' },
-  { name: 'shell_01', model: 'gpt-4o-mini', missions: 14, active: false, av: 'Sh', cls: '', sub: '' },
-  { name: 'planner_04', model: 'claude-opus-4', missions: 9, active: false, av: 'Pl', cls: '', sub: '' },
-]
+const { $fetch } = useApi()
 
-const systemPrompts: Record<string, string> = {
-  '_main': `You are Max OS — 1, a local-first agentic operating system.
-You orchestrate other specialized agents to complete user goals.
-You have access to: spawn_agent, assign_mission, monitor_agents, manage_memory.
-
-Guidelines:
-- Break complex goals into subtasks and delegate them
-- Monitor ongoing missions and report status
-- Consolidate results and present them clearly
-- Always prefer local execution over cloud services`,
-  'coder_07': `You are coder_07, a specialized coding agent.
-You write, review, and refactor code across multiple languages.
-You have access to: read_file, write_file, run_command, web_search.
-
-Focus on: TypeScript, Python, React, Vue, and system scripts.
-Always write clean, tested, and documented code.`,
+interface Agent {
+  name: string
+  cwd: string
+  model: string
+  permissionMode: string
+  allowedTools: string[]
+  deniedTools: string[]
 }
 
-const workingDirs: Record<string, string> = {
-  '_main': '~/',
-  'coder_07': '~/projects',
-  'researcher_42': '~/research',
-}
-
-const defaultPrompt = `You are a specialized agent in the Max OS — 1 system.
-Complete assigned tasks efficiently and report results clearly.`
-
+const agents = ref<Agent[]>([])
 const search = ref('')
-const selectedName = ref('_main')
-const selectedPerm = ref('auto')
+const selectedName = ref<string | null>(null)
 const saveStatus = ref('')
-const remoteControl = ref(true)
-const channels = ref({ telegram: true, whatsapp: false, webhook: false, teams: false })
+const showNewAgent = ref(false)
+const newAgentName = ref('')
+const systemPrompts: Record<string, string> = {}
 
-const allowedTools = ref(['read_file', 'write_file', 'run_command', 'web_search', 'spawn_agent'])
-const deniedTools = ref(['delete_file', 'rm_rf'])
+const form = reactive({
+  name: '',
+  cwd: '',
+  model: 'claude-sonnet-4-6',
+  permissionMode: 'acceptEdits',
+  allowedTools: [] as string[],
+  deniedTools: [] as string[],
+  systemPrompt: '',
+})
 
 const permModes = [
   { value: 'auto', label: 'Auto', desc: 'Agent decides independently, no confirmations' },
@@ -281,30 +184,124 @@ const permModes = [
   { value: 'bypassPermissions', label: 'Bypass', desc: 'Skip all permission checks (dangerous)' },
 ]
 
+function agentAvatar(name: string): string {
+  if (name === '_main') return '_M'
+  const parts = name.split('_')
+  return parts[0].slice(0, 2).toUpperCase()
+}
+
+function agentClass(name: string): string {
+  if (name === '_main') return 'salmon'
+  if (name.startsWith('coder')) return 'green'
+  if (name.startsWith('researcher')) return 'blue'
+  if (name.startsWith('memory')) return 'purple'
+  return ''
+}
+
 const filteredAgents = computed(() => {
-  if (!search.value) return agents
+  if (!search.value) return agents.value
   const q = search.value.toLowerCase()
-  return agents.filter(a => a.name.toLowerCase().includes(q) || a.model.toLowerCase().includes(q))
+  return agents.value.filter(a => a.name.toLowerCase().includes(q) || a.model.toLowerCase().includes(q))
 })
 
-const currentAgent = computed(() => agents.find(a => a.name === selectedName.value) || null)
+const currentAgent = computed(() => agents.value.find(a => a.name === selectedName.value) ?? null)
 
-function removeAllowed(t: string) { allowedTools.value = allowedTools.value.filter(x => x !== t) }
-function removeDenied(t: string) { deniedTools.value = deniedTools.value.filter(x => x !== t) }
-function addAllowed() {
-  const t = prompt('Tool name:')
-  if (t) allowedTools.value.push(t)
-}
-function addDenied() {
-  const t = prompt('Tool name:')
-  if (t) deniedTools.value.push(t)
+async function fetchAgents() {
+  agents.value = await $fetch<Agent[]>('/api/agents')
 }
 
-function handleSave() {
+async function selectAgent(name: string) {
+  selectedName.value = name
+  const agent = agents.value.find(a => a.name === name)
+  if (!agent) return
+  form.name = agent.name
+  form.cwd = agent.cwd
+  form.model = agent.model
+  form.permissionMode = agent.permissionMode
+  form.allowedTools = [...agent.allowedTools]
+  form.deniedTools = [...agent.deniedTools]
+
+  if (!systemPrompts[name]) {
+    try {
+      const { content } = await $fetch<{ content: string }>(`/api/agents/${name}/system-prompt`)
+      systemPrompts[name] = content
+    } catch { systemPrompts[name] = '' }
+  }
+  form.systemPrompt = systemPrompts[name] ?? ''
+}
+
+async function handleSave() {
+  if (!selectedName.value) return
   saveStatus.value = 'Saving…'
-  setTimeout(() => { saveStatus.value = 'Saved ✓' }, 800)
+  try {
+    await $fetch(`/api/agents/${selectedName.value}/config`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        config: {
+          name: form.name,
+          cwd: form.cwd,
+          model: form.model,
+          permissionMode: form.permissionMode,
+          allowedTools: form.allowedTools,
+          deniedTools: form.deniedTools,
+        },
+        systemPrompt: form.systemPrompt,
+      }),
+    })
+    saveStatus.value = 'Saved ✓'
+    await fetchAgents()
+  } catch (e: unknown) {
+    saveStatus.value = 'Error: ' + (e as Error).message
+  }
   setTimeout(() => { saveStatus.value = '' }, 3000)
 }
+
+async function deleteAgent() {
+  if (!selectedName.value) return
+  if (!confirm(`Supprimer l'agent ${selectedName.value} ?`)) return
+  await $fetch(`/api/agents/${selectedName.value}`, { method: 'DELETE' })
+  selectedName.value = null
+  await fetchAgents()
+}
+
+async function createAgent() {
+  const name = newAgentName.value.trim()
+  if (!name) return
+  await $fetch(`/api/agents/${name}/config`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      config: {
+        name,
+        cwd: `~/${name}`,
+        model: 'claude-sonnet-4-6',
+        permissionMode: 'acceptEdits',
+        allowedTools: ['bash', 'read_file', 'write_file'],
+        deniedTools: [],
+      },
+      systemPrompt: `You are ${name}, a specialized agent in the Max OS — 1 system.\nComplete assigned tasks efficiently and report results clearly.`,
+    }),
+  })
+  showNewAgent.value = false
+  newAgentName.value = ''
+  await fetchAgents()
+  selectAgent(name)
+}
+
+function removeAllowed(t: string) { form.allowedTools = form.allowedTools.filter(x => x !== t) }
+function removeDenied(t: string) { form.deniedTools = form.deniedTools.filter(x => x !== t) }
+function promptAddAllowed() {
+  const t = prompt('Tool name:')
+  if (t) form.allowedTools.push(t)
+}
+function promptAddDenied() {
+  const t = prompt('Tool name:')
+  if (t) form.deniedTools.push(t)
+}
+
+onMounted(async () => {
+  await fetchAgents()
+  if (agents.value.length > 0) selectAgent(agents.value[0].name)
+})
 </script>
 
 <style scoped>
@@ -331,7 +328,6 @@ function handleSave() {
   flex: 1;
   overflow-y: auto;
 }
-
 .agents-list-header {
   display: flex;
   align-items: center;
@@ -373,21 +369,15 @@ function handleSave() {
 .agent-item-name { font-size: 12px; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .agent-item-sub { font-size: 10.5px; color: var(--fg-dimmer); margin-top: 2px; }
 .agent-item-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.agent-item-missions { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--fg-dimmer); }
 .status-dot {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--fg-dimmer);
-}
-.status-dot.active {
-  background: var(--good);
-  box-shadow: 0 0 5px var(--good-glow);
 }
 .agents-list-footer {
   padding: 12px 14px;
   border-top: 1px solid var(--line);
   flex-shrink: 0;
 }
-
 .agent-form-wrap {
   padding: 20px 24px 40px;
 }
@@ -399,29 +389,6 @@ function handleSave() {
   border-bottom: 1px solid var(--line);
   margin-bottom: 4px;
   flex-wrap: wrap;
-}
-.channel-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.channel-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 7px;
-  border: 1px solid var(--line);
-  margin-bottom: 4px;
-}
-.channel-icon { font-size: 14px; width: 22px; text-align: center; flex-shrink: 0; }
-.channel-info { flex: 1; }
-.channel-name { font-size: 12.5px; font-weight: 500; color: var(--fg); }
-.channel-sub { font-size: 10.5px; color: var(--fg-dim); margin-top: 1px; }
-.channel-field {
-  padding: 0 12px 10px;
-  margin-top: -4px;
-  margin-bottom: 4px;
 }
 .form-footer {
   display: flex;

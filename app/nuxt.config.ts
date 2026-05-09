@@ -10,5 +10,10 @@ export default defineNuxtConfig({
       ]
     }
   },
-  ssr: false
+  ssr: false,
+  runtimeConfig: {
+    public: {
+      apiBase: 'http://localhost:9000',
+    },
+  },
 })

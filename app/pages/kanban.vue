@@ -4,14 +4,11 @@
     <div class="page-header">
       <div>
         <div class="page-title">Kanban</div>
-        <div class="page-sub">Active missions board</div>
+        <div class="page-sub">Board de tâches</div>
       </div>
       <div style="margin-left:auto;display:flex;align-items:center;gap:10px;">
         <div class="filter-pills">
-          <button v-for="ag in agentFilters" :key="ag" :class="['filter-pill', { active: activeAgent === ag }]" @click="activeAgent = ag">{{ ag }}</button>
-        </div>
-        <div class="segmented">
-          <button v-for="v in views" :key="v.value" :class="['seg-btn', { active: currentView === v.value }]" @click="currentView = v.value">{{ v.label }}</button>
+          <button v-for="ag in ['All', ...agentNames]" :key="ag" :class="['filter-pill', { active: activeAgent === ag }]" @click="activeAgent = ag">{{ ag }}</button>
         </div>
       </div>
     </div>
@@ -35,23 +32,23 @@
           <div
             v-for="card in getCards(col.id)"
             :key="card.id"
-            :class="['kanban-card', { 'active-card': card.colId === 'doing' }]"
+            :class="['kanban-card', { 'active-card': card.status === 'doing' }]"
             draggable="true"
             @dragstart="onDragStart(card)"
             @dragend="dragOverCol = null"
           >
             <div class="kanban-card-id">{{ card.id }}</div>
             <div class="kanban-card-title">{{ card.title }}</div>
-            <div v-if="card.colId === 'doing'" class="progress-bar" style="margin-bottom:8px;">
-              <div class="fill" :style="{ width: card.progress + '%', background: 'var(--accent)' }"></div>
+            <div v-if="card.status === 'doing'" class="progress-bar" style="margin-bottom:8px;">
+              <div class="fill" style="width:50%;background:var(--accent)"></div>
             </div>
             <div class="kanban-card-footer">
               <span :class="['domain-tag', card.domain]">{{ card.domain }}</span>
-              <div style="display:flex;align-items:center;gap:5px;margin-left:4px;">
-                <span :class="['av', card.agentCls]" style="width:16px;height:16px;font-size:7px;">{{ card.agentAv }}</span>
-                <span class="mono" style="font-size:10px;color:var(--fg-dimmer)">{{ card.agent }}</span>
+              <div v-if="card.agent_name" style="display:flex;align-items:center;gap:5px;margin-left:4px;">
+                <span :class="['av', agentClass(card.agent_name)]" style="width:16px;height:16px;font-size:7px;">{{ agentAvatar(card.agent_name) }}</span>
+                <span class="mono" style="font-size:10px;color:var(--fg-dimmer)">{{ card.agent_name }}</span>
               </div>
-              <span class="kanban-card-cost">{{ card.cost }}</span>
+              <button v-if="card.status === 'todo'" class="btn sm" style="margin-left:auto;padding:1px 7px;font-size:10px;" @click.stop="spawnTask(card)">▶ Spawn</button>
             </div>
           </div>
 
@@ -60,28 +57,78 @@
           </div>
         </div>
 
-        <button class="btn sm ghost" style="width:100%;margin-top:6px;color:var(--fg-dimmer)">+ Add card</button>
+        <button class="btn sm ghost" style="width:100%;margin-top:6px;color:var(--fg-dimmer)" @click="newTaskCol = col.id; showNewTask = true">+ Add card</button>
+      </div>
+    </div>
+
+    <!-- New task modal -->
+    <div v-if="showNewTask" class="modal-overlay" @click.self="showNewTask = false">
+      <div class="modal" style="width:420px;">
+        <div class="modal-header">
+          <div style="font-size:14px;font-weight:600;">New task</div>
+          <button class="modal-close" @click="showNewTask = false">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="label">Title</label>
+            <input type="text" class="input" v-model="newTaskTitle" placeholder="Task description…" />
+          </div>
+          <div class="form-group">
+            <label class="label">Agent</label>
+            <select class="select" v-model="newTaskAgent">
+              <option value="">— none —</option>
+              <option v-for="a in agentNames" :key="a" :value="a">{{ a }}</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="label">Domain</label>
+            <select class="select" v-model="newTaskDomain">
+              <option>dev</option>
+              <option>research</option>
+              <option>content</option>
+              <option>ops</option>
+              <option>product</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button class="btn primary" @click="createTask">Create</button>
+            <button class="btn ghost" @click="showNewTask = false">Cancel</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 
 definePageMeta({ layout: 'default' })
 
-const activeAgent = ref('All')
-const currentView = ref('kanban')
-const dragOverCol = ref<string | null>(null)
-let draggedCard: any = null
+const { $fetch } = useApi()
 
-const agentFilters = ['All', '_main', 'coder_07', 'researcher_42', 'planner_04']
-const views = [
-  { value: 'kanban', label: '⊞ Kanban' },
-  { value: 'list', label: '≡ List' },
-  { value: 'calendar', label: '📅 Calendar' },
-]
+interface Task {
+  id: string
+  title: string
+  description?: string
+  agent_name?: string
+  status: string
+  mission_id?: string
+  domain?: string
+  created_at: number
+  updated_at: number
+}
+
+const tasks = ref<Task[]>([])
+const agents = ref<{ name: string }[]>([])
+const activeAgent = ref('All')
+const dragOverCol = ref<string | null>(null)
+const showNewTask = ref(false)
+const newTaskCol = ref('backlog')
+const newTaskTitle = ref('')
+const newTaskAgent = ref('')
+const newTaskDomain = ref('dev')
+let draggedTask: Task | null = null
 
 const columns = [
   { id: 'backlog', title: 'Backlog', color: 'var(--fg-dim)' },
@@ -90,48 +137,90 @@ const columns = [
   { id: 'done', title: 'Terminé', color: 'var(--good)' },
 ]
 
-const cards = reactive([
-  { id: 'M-230', title: 'Implement OAuth2 PKCE flow', colId: 'backlog', domain: 'dev', agent: 'coder_07', agentAv: 'C', agentCls: 'green', cost: '$0.40', progress: 0 },
-  { id: 'M-229', title: 'Research competitor pricing pages', colId: 'backlog', domain: 'research', agent: 'researcher_42', agentAv: 'R', agentCls: 'blue', cost: '$0.28', progress: 0 },
-  { id: 'M-228', title: 'Write changelog for v1.3', colId: 'backlog', domain: 'content', agent: '_main', agentAv: '_M', agentCls: 'salmon', cost: '$0.12', progress: 0 },
-  { id: 'M-227', title: 'Setup CI/CD pipeline for agent tests', colId: 'backlog', domain: 'ops', agent: 'shell_01', agentAv: 'Sh', agentCls: '', cost: '$0.08', progress: 0 },
-  { id: 'M-226', title: 'Design Q3 roadmap', colId: 'todo', domain: 'product', agent: 'planner_04', agentAv: 'Pl', agentCls: '', cost: '$0.64', progress: 0 },
-  { id: 'M-225', title: 'Add Redis caching layer', colId: 'todo', domain: 'dev', agent: 'coder_07', agentAv: 'C', agentCls: 'green', cost: '$0.32', progress: 0 },
-  { id: 'M-224', title: 'Write unit tests for auth module', colId: 'todo', domain: 'dev', agent: 'reviewer_19', agentAv: 'Rv', agentCls: '', cost: '$0.18', progress: 0 },
-  { id: 'M-223', title: 'Daily memory compaction', colId: 'todo', domain: 'ops', agent: 'memory_03', agentAv: 'M', agentCls: 'purple', cost: '$0.04', progress: 0 },
-  { id: 'M-222', title: 'Update Kanban with DnD support', colId: 'doing', domain: 'dev', agent: 'coder_07', agentAv: 'C', agentCls: 'green', cost: '$0.18', progress: 72 },
-  { id: 'M-221', title: 'Research WebAuthn mobile', colId: 'doing', domain: 'research', agent: 'researcher_42', agentAv: 'R', agentCls: 'blue', cost: '$0.42', progress: 45 },
-  { id: 'M-220', title: 'Sprint planning week 20', colId: 'doing', domain: 'product', agent: 'planner_04', agentAv: 'Pl', agentCls: '', cost: '$0.56', progress: 30 },
-  { id: 'M-219', title: 'Dashboard D3 cost chart', colId: 'doing', domain: 'dev', agent: '_main', agentAv: '_M', agentCls: 'salmon', cost: '$0.34', progress: 88 },
-  { id: 'M-218', title: 'Review PR #142 auth refactor', colId: 'done', domain: 'dev', agent: 'reviewer_19', agentAv: 'Rv', agentCls: '', cost: '$0.09', progress: 100 },
-  { id: 'M-217', title: 'Fix TypeScript errors dashboard', colId: 'done', domain: 'dev', agent: 'coder_07', agentAv: 'C', agentCls: 'green', cost: '$0.22', progress: 100 },
-  { id: 'M-216', title: 'Write blog post on agentic OS', colId: 'done', domain: 'content', agent: '_main', agentAv: '_M', agentCls: 'salmon', cost: '$0.94', progress: 100 },
-  { id: 'M-215', title: 'Summarize RAG architecture research', colId: 'done', domain: 'research', agent: 'researcher_42', agentAv: 'R', agentCls: 'blue', cost: '$0.68', progress: 100 },
-  { id: 'M-214', title: 'Cleanup old log files', colId: 'done', domain: 'ops', agent: 'shell_01', agentAv: 'Sh', agentCls: '', cost: '$0.01', progress: 100 },
-  { id: 'M-213', title: 'Update memory patterns', colId: 'done', domain: 'ops', agent: 'memory_03', agentAv: 'M', agentCls: 'purple', cost: '$0.04', progress: 100 },
-])
+const agentNames = computed(() => agents.value.map(a => a.name))
+
+function agentAvatar(name: string): string {
+  if (name === '_main') return '_M'
+  return name.split('_')[0].slice(0, 2).toUpperCase()
+}
+
+function agentClass(name: string): string {
+  if (name === '_main') return 'salmon'
+  if (name.startsWith('coder')) return 'green'
+  if (name.startsWith('researcher')) return 'blue'
+  if (name.startsWith('memory')) return 'purple'
+  return ''
+}
 
 function getCards(colId: string) {
-  let cs = cards.filter(c => c.colId === colId)
+  let cs = tasks.value.filter(t => t.status === colId)
   if (activeAgent.value !== 'All') {
-    cs = cs.filter(c => c.agent === activeAgent.value)
+    cs = cs.filter(t => t.agent_name === activeAgent.value)
   }
   return cs
 }
 
-function onDragStart(card: any) {
-  draggedCard = card
+async function fetchTasks() {
+  tasks.value = await $fetch<Task[]>('/api/tasks')
 }
 
-function onDrop(colId: string) {
-  if (draggedCard) {
-    draggedCard.colId = colId
-    if (colId === 'done') draggedCard.progress = 100
-    else if (colId === 'doing' && draggedCard.progress === 0) draggedCard.progress = 10
-    draggedCard = null
-  }
-  dragOverCol.value = null
+async function fetchAgents() {
+  agents.value = await $fetch<{ name: string }[]>('/api/agents')
 }
+
+function onDragStart(task: Task) {
+  draggedTask = task
+}
+
+async function onDrop(colId: string) {
+  dragOverCol.value = null
+  if (!draggedTask) return
+  const task = draggedTask
+  draggedTask = null
+  if (task.status === colId) return
+
+  const idx = tasks.value.findIndex(t => t.id === task.id)
+  if (idx !== -1) tasks.value[idx] = { ...task, status: colId }
+
+  await $fetch(`/api/tasks/${task.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: colId }),
+  })
+}
+
+async function createTask() {
+  if (!newTaskTitle.value.trim()) return
+  await $fetch('/api/tasks', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: newTaskTitle.value.trim(),
+      agent_name: newTaskAgent.value || null,
+      status: newTaskCol.value,
+      domain: newTaskDomain.value,
+    }),
+  })
+  showNewTask.value = false
+  newTaskTitle.value = ''
+  newTaskAgent.value = ''
+  await fetchTasks()
+}
+
+async function spawnTask(task: Task) {
+  if (!task.agent_name) return
+  const { missionId } = await $fetch<{ missionId: string }>('/api/agents/spawn', {
+    method: 'POST',
+    body: JSON.stringify({ agent_name: task.agent_name, mission: task.title }),
+  })
+  await $fetch(`/api/tasks/${task.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'doing', mission_id: missionId }),
+  })
+  await fetchTasks()
+}
+
+onMounted(async () => {
+  await Promise.all([fetchTasks(), fetchAgents()])
+})
 </script>
 
 <style scoped>
