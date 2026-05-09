@@ -78,6 +78,7 @@
                   <span class="dot"></span>
                   {{ m.status }}
                 </span>
+                <span v-if="m.status === 'failed'" class="badge bad" style="margin-left:4px;font-size:10px;" title="Mission échouée — voir détails">!</span>
               </td>
               <td>
                 <button v-if="m.status === 'running'" class="btn sm" style="padding:2px 8px;font-size:10px;" @click.stop="killMission(m.id)">Kill</button>

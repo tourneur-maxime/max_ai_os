@@ -12,7 +12,12 @@ import { createStatsRouter } from './routes/stats.js';
 import { createTasksRouter } from './routes/tasks.js';
 import { createSkillsRouter } from './routes/skills.js';
 import { createMemoryRouter } from './routes/memory.js';
+import { seedLoyaltyAgents } from './seed-loyalty.js';
+import { autoSetup } from './setup.js';
 import type { Mission } from './types.js';
+
+autoSetup();
+seedLoyaltyAgents();
 
 const app = express();
 const PORT = parseInt(process.env.PORT ?? '9000', 10);
@@ -53,8 +58,10 @@ app.get('/api/missions/:id', (req, res) => {
   res.json({ mission, events });
 });
 
-app.get('/api/missions', (_req, res) => {
-  const missions = db.prepare('SELECT * FROM missions ORDER BY created_at DESC LIMIT 100').all() as Mission[];
+app.get('/api/missions', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+  const offset = parseInt(req.query.offset as string) || 0;
+  const missions = db.prepare('SELECT * FROM missions ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limit, offset) as Mission[];
   res.json(missions);
 });
 
