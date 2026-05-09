@@ -1,11 +1,25 @@
 import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
-import { randomUUID } from 'crypto';
+import crypto, { randomUUID } from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import { db } from '../db.js';
 import { Request, Response, NextFunction } from 'express';
 import type { RemoteToken } from '../types.js';
 
-const SECRET_KEY = process.env.MAXOS_JWT_SECRET ?? crypto.randomBytes(32).toString('hex');
+function loadOrCreateSecret(): string {
+  if (process.env.MAXOS_JWT_SECRET) return process.env.MAXOS_JWT_SECRET;
+  const secretPath = path.join(os.homedir(), '.mos', '.jwt_secret');
+  if (fs.existsSync(secretPath)) {
+    return fs.readFileSync(secretPath, 'utf-8').trim();
+  }
+  const secret = crypto.randomBytes(32).toString('hex');
+  fs.mkdirSync(path.dirname(secretPath), { recursive: true });
+  fs.writeFileSync(secretPath, secret, { encoding: 'utf-8', mode: 0o600 });
+  return secret;
+}
+
+const SECRET_KEY = loadOrCreateSecret();
 const TOKEN_TTL = 24 * 60 * 60; // 24h in seconds
 const RATE_LIMIT_RPS = 10;
 

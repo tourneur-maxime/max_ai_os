@@ -11,6 +11,7 @@
       <NuxtLink to="/skills" class="nav-link" exact-active-class="router-link-exact-active">Skills</NuxtLink>
       <NuxtLink to="/dashboard" class="nav-link" exact-active-class="router-link-exact-active">Dashboard</NuxtLink>
       <NuxtLink to="/channels" class="nav-link" exact-active-class="router-link-exact-active">Channels</NuxtLink>
+      <NuxtLink to="/remote" class="nav-link" exact-active-class="router-link-exact-active">Remote</NuxtLink>
     </div>
     <div class="nav-spacer"></div>
     <div class="nav-stats">
