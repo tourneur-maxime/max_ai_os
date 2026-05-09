@@ -16,6 +16,10 @@
         <span>${{ sessionCost.toFixed(4) }}</span>
       </div>
       <div class="chat-header-spacer"></div>
+      <label class="toggle-label">
+        <input type="checkbox" v-model="freshStart" class="toggle-cb" />
+        <span class="toggle-text">Fresh start</span>
+      </label>
       <NuxtLink to="/agents" class="btn sm">⚙ Edit config</NuxtLink>
     </div>
 
@@ -106,6 +110,7 @@ const currentMissionId = ref<string | null>(null)
 const agentModel = ref('claude-sonnet-4-6')
 const sessionTokens = ref(0)
 const sessionCost = ref(0)
+const freshStart = ref(false)
 let sseClose: (() => void) | null = null
 
 const modes = [
@@ -257,7 +262,7 @@ async function sendMessage() {
   try {
     const { missionId } = await $fetch<{ missionId: string }>('/api/agents/spawn', {
       method: 'POST',
-      body: JSON.stringify({ agent_name: agentName.value, mission: text }),
+      body: JSON.stringify({ agent_name: agentName.value, mission: text, withHistory: !freshStart.value }),
     })
     currentMissionId.value = missionId
     subscribeToMission(missionId)
@@ -381,4 +386,7 @@ onUnmounted(() => {
 .composer-input-row { display: flex; gap: 8px; align-items: flex-end; }
 .composer-textarea { flex: 1; resize: none; min-height: 42px; max-height: 180px; overflow-y: auto; }
 .composer-btns { display: flex; gap: 6px; flex-shrink: 0; }
+.toggle-label { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.toggle-cb { accent-color: var(--accent); cursor: pointer; }
+.toggle-text { font-size: 11.5px; color: var(--fg-dim); }
 </style>

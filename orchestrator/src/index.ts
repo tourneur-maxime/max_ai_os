@@ -39,13 +39,34 @@ app.use((req, res, next) => {
 // ====== MISSIONS ======
 
 app.post('/api/agents/spawn', (req, res) => {
-  const { agent_name, mission } = req.body as { agent_name: string; mission: string };
+  const { agent_name, mission, withHistory } = req.body as { agent_name: string; mission: string; withHistory?: boolean };
   if (!agent_name || !mission) {
     res.status(400).json({ error: 'agent_name and mission required' });
     return;
   }
   const config = getAgentConfig(agent_name);
-  const missionId = spawnAgent(config, mission);
+
+  let missionInput = mission;
+  if (withHistory) {
+    const rows = db.prepare(`
+      SELECT m.input, e.payload
+      FROM missions m
+      JOIN events e ON e.mission_id = m.id
+      WHERE m.agent_name = ? AND e.type = 'result' AND m.status = 'done'
+      ORDER BY m.created_at DESC LIMIT 10
+    `).all(agent_name) as { input: string; payload: string }[];
+
+    if (rows.length > 0) {
+      const history = rows.reverse().map((r) => {
+        let result = '';
+        try { result = (JSON.parse(r.payload) as { result?: string }).result ?? ''; } catch { /* ignore */ }
+        return `**User:** ${r.input.slice(0, 200)}\n**Agent:** ${result.slice(0, 400)}`;
+      }).join('\n\n---\n\n');
+      missionInput = `## Conversations récentes\n\n${history}\n\n---\n\n${mission}`;
+    }
+  }
+
+  const missionId = spawnAgent(config, missionInput);
   res.json({ missionId });
 });
 
