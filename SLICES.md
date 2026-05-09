@@ -5,18 +5,18 @@
 
 ---
 
-## Slice 1 — Foundation ✅ (partiel) / 🔲 à compléter
+## Slice 1 — Foundation ✅ complet
 **Objectif** : Socle commun dont toutes les autres slices dépendent.
 
 - [x] Orchestrateur Express + PTY (prompts 01-03)
 - [x] SQLite WAL, tables `missions`, `events`, `remote_tokens`
 - [x] SSE par mission (`/api/missions/:id/stream`)
 - [x] Canaux Telegram + Webhook + Remote JWT
-- [ ] **`GET /api/events/stream`** — SSE global (expose `broadcastAll`)
-- [ ] **`PUT /api/agents/:name/config`** — écriture config.json + system-prompt.md
-- [ ] **`GET /api/stats`** — agrégats coûts/tokens/missions par agent et par jour
-- [ ] **Composable `useApi.ts`** — fetch wrapper + SSE helper
-- [ ] **`nuxt.config.ts`** runtimeConfig `apiBase` (défaut `http://localhost:9000`)
+- [x] **`GET /api/events/stream`** — SSE global
+- [x] **`PUT /api/agents/:name/config`** — écriture config.json + system-prompt.md
+- [x] **`GET /api/stats`** — agrégats coûts/tokens/missions par agent et par jour
+- [x] **Composable `useApi.ts`** — fetch wrapper + SSE helper
+- [x] **`nuxt.config.ts`** runtimeConfig `apiBase`
 
 ---
 
@@ -31,10 +31,10 @@
 - `GET /api/missions/:id/stream` ✅
 
 **Frontend** :
-- [ ] Remplacer tableau statique → fetch `GET /api/missions`
-- [ ] Bouton Kill → `DELETE /api/missions/:id`
-- [ ] Détail mission : SSE stream → log temps-réel dans panneau latéral
-- [ ] Afficher `cost_usd`, `tokens_in`, `tokens_out`
+- [x] Remplacer tableau statique → fetch `GET /api/missions`
+- [x] Bouton Kill → `DELETE /api/missions/:id`
+- [x] Détail mission : SSE stream → log temps-réel dans panneau latéral
+- [x] Afficher `cost_usd`, `tokens_in`, `tokens_out`
 
 ---
 

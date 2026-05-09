@@ -1,4 +1,5 @@
 export default defineNuxtConfig({
+  compatibilityDate: '2024-11-01',
   modules: ['@nuxtjs/tailwindcss'],
   css: ['~/assets/css/main.css'],
   app: {
@@ -11,6 +12,9 @@ export default defineNuxtConfig({
     }
   },
   ssr: false,
+  experimental: {
+    viteEnvironmentApi: true,
+  },
   runtimeConfig: {
     public: {
       apiBase: 'http://localhost:9000',

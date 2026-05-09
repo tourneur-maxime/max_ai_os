@@ -2,15 +2,9 @@
   "name": "maxos",
   "version": "0.1.0",
   "private": true,
-  "workspaces": [
-    "app",
-    "orchestrator"
-  ],
   "scripts": {
-    "dev": "concurrently \"npm run dev:app\" \"npm run dev:orchestrator\"",
-    "dev:app": "npm run dev --workspace=app",
-    "dev:orchestrator": "npm run dev --workspace=orchestrator",
-    "install:all": "npm install && npm install --workspace=app && npm install --workspace=orchestrator"
+    "dev": "concurrently \"cd app && npm run dev\" \"cd orchestrator && npm run dev\"",
+    "install:all": "npm install --prefix app && npm install --prefix orchestrator"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
