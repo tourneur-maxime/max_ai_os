@@ -1,21 +1,39 @@
-import * as pty from 'node-pty';
+import { spawn as cpSpawn, type ChildProcess } from 'child_process';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { execSync } from 'child_process';
 import { db } from './db.js';
 import { broadcast } from './sse.js';
 import type { Agent } from './types.js';
 
-const activePtys = new Map<string, ReturnType<typeof pty.spawn>>();
+const activeProcesses = new Map<string, ChildProcess>();
 
-export function spawnAgent(agent: Agent, missionInput: string, sourceChannel?: string): string {
+function resolveBin(name: string): string {
+  try {
+    return execSync(`which ${name}`, { encoding: 'utf8' }).trim();
+  } catch {
+    return name;
+  }
+}
+
+const CLAUDE_BIN = resolveBin('claude');
+
+const TRIAGE_AGENTS = new Set(['loyalty-triage']);
+
+export function spawnAgent(
+  agent: Agent,
+  missionInput: string,
+  sourceChannel?: string,
+  parentMissionId?: string,
+  callbackUrl?: string,
+): string {
   const missionId = `M-${Date.now().toString(36).toUpperCase()}`;
 
-  // Insert mission into DB
   db.prepare(`
-    INSERT INTO missions (id, agent_name, input, status, source_channel, created_at)
-    VALUES (?, ?, ?, 'running', ?, ?)
-  `).run(missionId, agent.name, missionInput, sourceChannel ?? null, Date.now());
+    INSERT INTO missions (id, agent_name, input, status, source_channel, parent_mission_id, callback_url, created_at)
+    VALUES (?, ?, ?, 'running', ?, ?, ?, ?)
+  `).run(missionId, agent.name, missionInput, sourceChannel ?? null, parentMissionId ?? null, callbackUrl ?? null, Date.now());
 
   const systemPromptPath = path.join(os.homedir(), '.mos', 'agents', agent.name, 'system-prompt.md');
   const systemPrompt = fs.existsSync(systemPromptPath)
@@ -31,20 +49,18 @@ export function spawnAgent(agent: Agent, missionInput: string, sourceChannel?: s
     '-p', missionInput,
   ];
 
-  const ptyProcess = pty.spawn('claude', args, {
-    name: 'xterm-color',
-    cols: 120,
-    rows: 40,
+  const child = cpSpawn(CLAUDE_BIN, args, {
     cwd: agent.cwd || os.homedir(),
-    env: process.env as Record<string, string>,
+    env: process.env,
+    stdio: ['pipe', 'pipe', 'pipe'],
   });
 
-  activePtys.set(missionId, ptyProcess);
+  activeProcesses.set(missionId, child);
 
   let buffer = '';
 
-  ptyProcess.onData((chunk: string) => {
-    buffer += chunk;
+  const handleChunk = (chunk: Buffer | string) => {
+    buffer += chunk.toString();
     const lines = buffer.split('\n');
     buffer = lines.pop() ?? '';
 
@@ -58,10 +74,13 @@ export function spawnAgent(agent: Agent, missionInput: string, sourceChannel?: s
         // Non-JSON line (verbose logs), ignore
       }
     }
-  });
+  };
 
-  ptyProcess.onExit(({ exitCode }) => {
-    activePtys.delete(missionId);
+  child.stdout.on('data', handleChunk);
+  child.stderr.on('data', handleChunk);
+
+  child.on('close', (exitCode) => {
+    activeProcesses.delete(missionId);
     const status = exitCode === 0 ? 'done' : 'failed';
     db.prepare(`
       UPDATE missions SET status = ?, finished_at = ? WHERE id = ?
@@ -69,7 +88,64 @@ export function spawnAgent(agent: Agent, missionInput: string, sourceChannel?: s
     broadcast(missionId, { type: 'mission_complete', missionId, status });
   });
 
+  child.on('error', (err) => {
+    console.error(`[spawn] error for mission ${missionId}:`, err);
+    activeProcesses.delete(missionId);
+    db.prepare(`UPDATE missions SET status = 'failed', finished_at = ? WHERE id = ?`)
+      .run(Date.now(), missionId);
+    broadcast(missionId, { type: 'mission_complete', missionId, status: 'failed' });
+  });
+
   return missionId;
+}
+
+function extractTriageDecision(resultText: string): { agent_cible: string; resume?: string; note_pour_agent?: string } | null {
+  const fenceMatch = resultText.match(/```(?:json)?\s*([\s\S]*?)```/);
+  for (const candidate of fenceMatch ? [fenceMatch[1], resultText] : [resultText]) {
+    try {
+      const parsed = JSON.parse(candidate.trim());
+      if (parsed?.agent_cible) return parsed;
+    } catch { /* continue */ }
+  }
+  return null;
+}
+
+function tryAutoRoute(missionId: string, resultText: string): void {
+  const mission = db.prepare(
+    'SELECT agent_name, input, source_channel, callback_url, parent_mission_id FROM missions WHERE id = ?',
+  ).get(missionId) as {
+    agent_name: string;
+    input: string;
+    source_channel: string | null;
+    callback_url: string | null;
+    parent_mission_id: string | null;
+  } | undefined;
+
+  if (!mission) return;
+  // Anti-boucle : ne router que depuis un agent triage racine
+  if (!TRIAGE_AGENTS.has(mission.agent_name) || mission.parent_mission_id != null) return;
+
+  const decision = extractTriageDecision(resultText);
+  if (!decision?.agent_cible) return;
+
+  const agentDir = path.join(os.homedir(), '.mos', 'agents', decision.agent_cible);
+  const targetAgent = fs.existsSync(agentDir) ? decision.agent_cible : 'loyalty-escalation';
+  const agentConfig = getAgentConfig(targetAgent);
+
+  const parts = [mission.input];
+  if (decision.note_pour_agent || decision.resume) {
+    parts.push('\n--- Contexte triage ---');
+    if (decision.note_pour_agent) parts.push(`Note : ${decision.note_pour_agent}`);
+    if (decision.resume) parts.push(`Résumé : ${decision.resume}`);
+  }
+
+  spawnAgent(
+    agentConfig,
+    parts.join('\n'),
+    mission.source_channel ?? undefined,
+    missionId,
+    mission.callback_url ?? undefined,
+  );
 }
 
 function storeAndBroadcast(missionId: string, event: Record<string, unknown>): void {
@@ -83,7 +159,6 @@ function storeAndBroadcast(missionId: string, event: Record<string, unknown>): v
 
   broadcast(missionId, { ...event, missionId, timestamp });
 
-  // Capture tokens + cost from result event (stream-json final event)
   if (type === 'result') {
     const usage = event.usage as Record<string, number> | undefined;
     db.prepare(`
@@ -94,21 +169,23 @@ function storeAndBroadcast(missionId: string, event: Record<string, unknown>): v
       (event.cost_usd as number) ?? null,
       missionId,
     );
+    const resultText = (event.result as string) ?? '';
+    setImmediate(() => tryAutoRoute(missionId, resultText));
   }
 }
 
 export function sendInput(missionId: string, input: string): boolean {
-  const ptyProcess = activePtys.get(missionId);
-  if (!ptyProcess) return false;
-  ptyProcess.write(input + '\r');
+  const child = activeProcesses.get(missionId);
+  if (!child || !child.stdin) return false;
+  child.stdin.write(input + '\n');
   return true;
 }
 
 export function killMission(missionId: string): boolean {
-  const ptyProcess = activePtys.get(missionId);
-  if (!ptyProcess) return false;
-  ptyProcess.kill();
-  activePtys.delete(missionId);
+  const child = activeProcesses.get(missionId);
+  if (!child) return false;
+  child.kill();
+  activeProcesses.delete(missionId);
   db.prepare(`UPDATE missions SET status = 'failed', finished_at = ? WHERE id = ?`)
     .run(Date.now(), missionId);
   return true;
@@ -127,4 +204,58 @@ export function getAgentConfig(agentName: string): Agent {
     allowedTools: ['bash', 'read_file', 'write_file', 'edit_file', 'web_search'],
     deniedTools: [],
   };
+}
+
+export function waitForFinalCompletion(
+  rootMissionId: string,
+  cb: (status: string, output?: string) => void,
+  timeoutMs = 30 * 60 * 1000,
+): void {
+  let currentMissionId = rootMissionId;
+  let switched = false;
+  let doneSeenAt: number | null = null;
+
+  const interval = setInterval(() => {
+    const mission = db.prepare('SELECT status FROM missions WHERE id = ?').get(currentMissionId) as { status: string } | undefined;
+    if (!mission) return;
+
+    if (mission.status !== 'running') {
+      if (mission.status === 'done' && !switched) {
+        const child = db.prepare(
+          'SELECT id FROM missions WHERE parent_mission_id = ? ORDER BY created_at ASC LIMIT 1',
+        ).get(currentMissionId) as { id: string } | undefined;
+
+        if (child) {
+          currentMissionId = child.id;
+          switched = true;
+          doneSeenAt = null;
+          return;
+        }
+
+        // Période de grâce : laisser tryAutoRoute (setImmediate) un cycle pour insérer l'enfant
+        if (doneSeenAt === null) {
+          doneSeenAt = Date.now();
+          return;
+        }
+      }
+
+      clearInterval(interval);
+      if (mission.status === 'done') {
+        const event = db.prepare(
+          "SELECT payload FROM events WHERE mission_id = ? AND type = 'result' ORDER BY timestamp DESC LIMIT 1",
+        ).get(currentMissionId) as { payload: string } | undefined;
+        const output = event
+          ? (JSON.parse(event.payload) as Record<string, unknown>)?.result as string | undefined
+          : undefined;
+        cb('done', output);
+      } else {
+        cb(mission.status);
+      }
+    }
+  }, 2000);
+
+  setTimeout(() => {
+    clearInterval(interval);
+    cb('timeout');
+  }, timeoutMs);
 }

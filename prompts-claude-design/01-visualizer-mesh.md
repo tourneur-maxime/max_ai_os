@@ -16,7 +16,7 @@ Layout :
 - Les lignes entre agents pulsent aussi quand des données circulent
 
 UI overlay :
-- En haut à gauche : badge "MOS — AGENTIC OS" en saumon (#E07A5F), avec sous-titre "local-first"
+- En haut à gauche : badge "Max OS — 1" en saumon (#E07A5F), avec sous-titre "local-first"
 - En bas, sur toute la largeur : console scrollable qui affiche les events temps réel (PreToolUse, PostToolUse, Stop, etc.) — police monospace, fond #1a1a1a, texte gris clair
 - En haut à droite : bouton "+ Add Agent" qui ouvre un picker pour spawn un nouvel agent
 - Stats en haut au centre : "3 agents actifs · 142 events · $0.34 today"
@@ -32,7 +32,7 @@ Style :
 - Police : Inter ou similaire pour l'UI, monospace (JetBrains Mono) pour la console
 - Couleur d'accent : saumon (#E07A5F) pour les éléments de marque
 
-Stack suggérée : Next.js + Tailwind + React Force Graph (ou D3).
+Stack suggérée : Nuxt.js + Tailwind + React Force Graph (ou D3).
 ```
 
 ## Notes

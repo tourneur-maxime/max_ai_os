@@ -84,7 +84,7 @@ Style général (3 pages) :
 - Police : Inter pour UI, JetBrains Mono pour code et timestamps
 - Tableau : zebra rows, hover state
 
-Stack : Next.js + Tailwind + shadcn/ui + dnd-kit (pour Kanban).
+Stack : Nuxt.js + Tailwind + shadcn/ui + dnd-kit (pour Kanban).
 ```
 
 ## Notes

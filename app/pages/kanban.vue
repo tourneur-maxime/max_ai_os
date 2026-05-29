@@ -88,6 +88,7 @@
               <option>content</option>
               <option>ops</option>
               <option>product</option>
+              <option>loyalty</option>
             </select>
           </div>
           <div style="display:flex;gap:8px;margin-top:12px;">

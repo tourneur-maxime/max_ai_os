@@ -68,7 +68,7 @@ Style général :
 - Charts : utiliser des couleurs cohérentes (saumon + dérivés gris)
 - Cards : bordure subtile, hover state léger
 
-Stack : Next.js + Tailwind + Recharts.
+Stack : Nuxt.js + Tailwind + Recharts.
 ```
 
 ## Notes

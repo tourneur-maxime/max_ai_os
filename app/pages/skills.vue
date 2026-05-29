@@ -158,7 +158,7 @@ const createForm = reactive({
   agent_name: '',
 })
 
-const categories = ['All', 'Dev', 'Content', 'Ops', 'Life', 'Research']
+const categories = ['All', 'Dev', 'Content', 'Ops', 'Life', 'Research', 'Support', 'Support B2B']
 const sources = ['All', 'Built-in', 'Custom']
 
 function agentAvatar(name: string): string {

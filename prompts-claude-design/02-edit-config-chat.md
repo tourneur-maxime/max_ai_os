@@ -26,7 +26,7 @@ Section IDENTITY :
 - Champ "Working directory" (input texte avec picker)
 
 Section MODEL :
-- Select : sonnet / opus / haiku / sonnet-thinking
+- Select : (utilise les modèles GPT disponibles via l'API OpenAI, avec indication des coûts tokens)
 - Toggle : "Use plan max" (par défaut activé) — texte info "exploite ton abonnement Claude Code Max"
 
 Section PERMISSIONS :
@@ -36,9 +36,9 @@ Section PERMISSIONS :
 
 Section CHANNELS :
 - Toggle "Telegram" + champ chat_id (visible si activé)
-- Toggle "Discord" + champ webhook_url
 - Toggle "WhatsApp" + champ numéro
 - Toggle "Webhook" + champ URL
+- Toggle "Microsoft Teams" + champ URL
 
 Section REMOTE CONTROL :
 - Toggle "Enable remote control"
@@ -79,11 +79,11 @@ Style général :
 - Couleur d'accent : saumon (#E07A5F)
 - Police : Inter pour UI, JetBrains Mono pour code
 
-Stack : Next.js + Tailwind + shadcn/ui.
+Stack : Nuxt.js + Tailwind + shadcn/ui.
 ```
 
 ## Notes
 
 - La section CHANNELS est la patte unique de ce système : pouvoir notifier/recevoir depuis plusieurs canaux.
-- La section REMOTE CONTROL prépare l'usage mobile via Claude.ai (super utile en déplacement).
+- La section REMOTE CONTROL prépare l'usage mobile via Claude.ai si un modele d'anthropic est actif (super utile en déplacement).
 - Le bouton "Open chat with this agent" est un raccord important — édite puis teste.

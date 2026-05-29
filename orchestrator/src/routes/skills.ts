@@ -10,6 +10,79 @@ const DEFAULT_SKILLS = [
   { name: 'daily_brief', description: 'Morning briefing with tasks & news', command: 'Generate a concise daily briefing covering: pending tasks, relevant tech news (search for today\'s top 3 AI/dev stories), and a productivity tip. Format as markdown.', agent_name: null, category: 'Life', source: 'Built-in', active: 1, yaml_def: 'name: daily_brief\nversion: 0.9.1\ntrigger: cron(0 8 * * *)\ntools: [web_search]\nmodel: claude-sonnet-4-6\ndelivery: telegram' },
 ];
 
+const LOYALTY_SKILLS = [
+  {
+    name: 'loyalty_member_lookup',
+    description: 'Fiche complète d\'un membre : solde, tier, historique, incidents',
+    command: 'Recherche le profil complet du membre du programme fidélité dont les informations sont fournies (numéro de membre, email ou nom+prénom). Synthétise : solde de points actuel, niveau de membership (tier), historique des 10 dernières transactions, date d\'inscription, date d\'expiration des points, et tout incident ou réclamation récente. Présente le résultat sous forme de fiche structurée prête à lire par un agent support.',
+    agent_name: 'loyalty-b2c',
+    category: 'Support',
+    source: 'Loyalty',
+    active: 1,
+    yaml_def: 'name: loyalty_member_lookup\nversion: 1.0.0\ntrigger: on_demand\ntools: [web_search]\nmodel: claude-sonnet-4-6\nchannel: any',
+  },
+  {
+    name: 'points_audit',
+    description: 'Audit des écarts de points entre transactions et solde déclaré',
+    command: 'Effectue un audit des écarts de points pour le membre dont les informations sont fournies (identifiant, période concernée, montant déclaré manquant). Analyse l\'historique des transactions disponible, vérifie la cohérence des calculs (taux de conversion, règles d\'expiration, bonus partenaires), identifie la cause probable de l\'écart. Produis un rapport d\'audit structuré avec : résumé de l\'écart, cause probable, recommandation de résolution.',
+    agent_name: 'loyalty-b2c',
+    category: 'Support',
+    source: 'Loyalty',
+    active: 1,
+    yaml_def: 'name: points_audit\nversion: 1.0.0\ntrigger: on_demand\ntools: [web_search]\nmodel: claude-sonnet-4-6\nchannel: any',
+  },
+  {
+    name: 'partner_health_check',
+    description: 'Bilan de santé de l\'intégration API d\'un partenaire B2B',
+    command: 'Vérifie la santé de l\'intégration d\'un partenaire B2B dans le programme fidélité. À partir du nom ou ID partenaire fourni, analyse : statut de l\'API (codes d\'erreur récents, taux d\'échec), volume de transactions sur les 30 derniers jours vs mois précédent, tickets ouverts non résolus, date de la dernière synchronisation réussie. Produis un rapport de santé avec score de criticité (vert/orange/rouge) et liste priorisée des actions correctives recommandées.',
+    agent_name: 'loyalty-b2b',
+    category: 'Support B2B',
+    source: 'Loyalty',
+    active: 1,
+    yaml_def: 'name: partner_health_check\nversion: 1.0.0\ntrigger: on_demand\ntools: [web_search]\nmodel: claude-sonnet-4-6\nchannel: b2b',
+  },
+  {
+    name: 'reward_recommendation',
+    description: 'Recommandations de récompenses personnalisées pour un membre',
+    command: 'Génère des recommandations de récompenses personnalisées pour le membre dont le profil est fourni (solde de points, niveau de membership, préférences connues). Sélectionne 3 à 5 récompenses adaptées dans le catalogue standard du programme (bons d\'achat, expériences, produits, voyages). Pour chaque récompense : explique pourquoi elle correspond au profil, indique le coût en points et le délai d\'obtention. Présente de façon attrayante et conversationnelle, prête à être envoyée au membre.',
+    agent_name: 'loyalty-b2c',
+    category: 'Support',
+    source: 'Loyalty',
+    active: 1,
+    yaml_def: 'name: reward_recommendation\nversion: 1.0.0\ntrigger: on_demand\ntools: [web_search]\nmodel: claude-sonnet-4-6\nchannel: any',
+  },
+  {
+    name: 'escalation_report',
+    description: 'Rapport d\'escalade structuré pour un cas complexe ou sensible',
+    command: 'Génère un rapport d\'escalade complet pour le cas de support décrit. Synthétise : les faits clés et chronologie, l\'analyse de la cause racine, l\'impact client ou partenaire, la solution proposée avec compensation si applicable, et le niveau de supervision requis. Utilise le format rapport standard (RAPPORT D\'ESCALADE #ID, criticité, chronologie, analyse, solution proposée, supervision requise, prochaines actions). Conclut avec une recommandation claire sur la prochaine action et l\'urgence.',
+    agent_name: 'loyalty-escalation',
+    category: 'Support',
+    source: 'Loyalty',
+    active: 1,
+    yaml_def: 'name: escalation_report\nversion: 1.0.0\ntrigger: on_demand\ntools: []\nmodel: claude-sonnet-4-6\nchannel: any',
+  },
+  {
+    name: 'b2b_partner_onboard',
+    description: 'Plan d\'onboarding complet pour un nouveau partenaire B2B',
+    command: 'Guide l\'onboarding complet d\'un nouveau partenaire B2B dans le programme fidélité. À partir du type de partenaire fourni (enseigne retail, banque, e-commerce, autre) et de ses informations, produis un plan d\'intégration en 6 étapes : (1) checklist des prérequis contractuels et techniques, (2) configuration API côté partenaire (credentials, webhooks, format transaction), (3) paramétrage des règles de points (taux de base, catégories, bonus événementiels), (4) protocole de tests d\'intégration avec critères de validation, (5) formation équipe partenaire, (6) critères de go-live et KPIs de suivi J+30. Adapte le niveau de détail technique au type de partenaire.',
+    agent_name: 'loyalty-b2b',
+    category: 'Support B2B',
+    source: 'Loyalty',
+    active: 1,
+    yaml_def: 'name: b2b_partner_onboard\nversion: 1.0.0\ntrigger: on_demand\ntools: [write_file]\nmodel: claude-sonnet-4-6\nchannel: b2b',
+  },
+  {
+    name: 'complaint_response_draft',
+    description: 'Rédaction d\'une réponse empathique à une réclamation B2B ou B2C',
+    command: 'Rédige une réponse professionnelle et empathique à la réclamation décrite. La réponse doit comporter 3 parties : (1) accusé de réception empathique validant l\'émotion du demandeur, (2) explication claire et honnête de la situation ou de l\'erreur, (3) solution concrète proposée avec délai de résolution réaliste. Adapte le registre au type de demandeur : chaleureux et simple pour B2C, professionnel et précis pour B2B. La réponse doit être prête à envoyer, sans placeholder ni variable à remplir.',
+    agent_name: null,
+    category: 'Support',
+    source: 'Loyalty',
+    active: 1,
+    yaml_def: 'name: complaint_response_draft\nversion: 1.0.0\ntrigger: on_demand\ntools: []\nmodel: claude-sonnet-4-6\nchannel: any',
+  },
+];
+
 function seedIfEmpty(): void {
   const count = (db.prepare('SELECT COUNT(*) as n FROM skills').get() as { n: number }).n;
   if (count > 0) return;
@@ -29,8 +102,26 @@ function seedIfEmpty(): void {
   insertAll();
 }
 
+function seedLoyaltySkills(): void {
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO skills (id, name, description, command, agent_name, category, source, active, yaml_def, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertAll = db.transaction(() => {
+    for (const s of LOYALTY_SKILLS) {
+      insert.run(
+        `SK-LY-${s.name.toUpperCase().replace(/_/g, '-')}`,
+        s.name, s.description, s.command, s.agent_name,
+        s.category, s.source, s.active, s.yaml_def, Date.now(),
+      );
+    }
+  });
+  insertAll();
+}
+
 export function createSkillsRouter(): Router {
   seedIfEmpty();
+  seedLoyaltySkills();
   const router = Router();
 
   router.get('/', (_req, res) => {
