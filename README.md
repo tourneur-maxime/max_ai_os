@@ -1,39 +1,105 @@
-# Construis ton Agentic OS personnel — Pack complet
+# MaxOS
 
-Pack pour reproduire à ta manière l'OS agentique présenté dans la vidéo : un système local-first qui orchestre tes agents Claude Code, garde leur mémoire, trace tes missions et tes coûts.
+OS agentique **local-first** : une interface Nuxt pilote un orchestrateur Node.js qui spawn des sous-agents `claude` CLI via PTY. Missions tracées, mémoire persistante par agent, skills, kanban, stats, et pilotage distant signé JWT.
 
-## Contenu du pack
+## Architecture
 
-### `/diagrammes` — Les 4 visuels de la vidéo (PNG haute qualité)
-- `01-briques-agentic-os.png` — Les 6 primitives (agents, mémoire, missions, hooks, orchestration, UI)
-- `02-modele-mental.png` — Le flux d'un événement à travers le système
-- `03-roadmap.png` — La progression Phase 1 → 3+
-- `04-3-etapes.png` — La méthode en 3 étapes (Design → Code → Câblage)
+Monorepo (npm workspaces) :
 
-### `/prompts-claude-design` — Maquettes UI
-Prompts prêts à coller dans **Claude Design** (claude.ai) pour générer les écrans :
-- `01-visualizer-mesh.md` — Le mesh live des agents (page d'accueil)
-- `02-edit-config-chat.md` — L'éditeur de config + le chat avec un agent
-- `03-memory-missions-kanban.md` — Mémoire éditable + missions tracking + vue Kanban
-- `04-skills-dashboard.md` — Catalogue de skills + dashboard radar
+| Workspace | Stack | Port |
+|---|---|---|
+| `app/` | Nuxt 3 SPA (SSR off), Tailwind, D3 | `3000` |
+| `orchestrator/` | Express + TypeScript, SQLite (WAL), node-pty | `9000` |
 
-### `/prompts-claude-code` — Logique back
-Prompts prêts à coller dans **Claude Code** pour câbler la mécanique :
-- `01-spawn-system.md` — Spawner un sous-agent avec `--append-system-prompt`
-- `02-channel-input.md` — Canaux d'entrée externes (Telegram, webhook)
-- `03-remote-control.md` — Pilotage distant via tunnel sécurisé
+Le frontend parle à l'orchestrateur en REST + SSE (flux d'événements temps réel). L'orchestrateur persiste tout dans SQLite et lance les agents en parsant leur sortie `--output-format stream-json`.
 
-## Comment l'utiliser
+## Prérequis
 
-**Étape 1** — Maquettes : ouvre Claude Design, colle un prompt `claude-design`, génère.
-**Étape 2** — MVP : ouvre Claude Code, colle le prompt design exporté, demande l'implémentation.
-**Étape 3** — Câblage : colle les prompts `claude-code` dans ton projet, l'agent câble la mécanique.
+- **Node.js ≥ 18** + npm
+- **Claude CLI** (`claude`) installé, authentifié et accessible dans le `PATH` — l'orchestrateur le spawn via PTY pour exécuter les agents.
 
-> **Important** : ces prompts sont des **points de départ**. Adapte-les à ton workflow, ton stack, tes besoins. C'est l'idée même d'un OS perso — il colle à toi, pas à un standard.
+## Installation
 
-## Liens
+```bash
+git clone https://github.com/tourneur-maxime/max_ai_os.git
+cd max_ai_os
+npm run install:all   # installe la racine + les deux workspaces
+```
 
-- Newsletter : https://mkc.sh/the-agentic-dev
-- Vidéo dédiée mémoire : https://mkc.sh/agentic-os-memory
+## Démarrer en développement
 
-Bon build.
+```bash
+npm run dev           # lance frontend + orchestrateur en parallèle
+```
+
+- Frontend → http://localhost:3000
+- Orchestrateur → http://localhost:9000
+
+Au **premier démarrage**, le dossier de données `~/.mos/` et la base SQLite `~/.mos/orchestrator.db` sont créés automatiquement.
+
+## Données locales (`~/.mos/`)
+
+Tout l'état vit sur ta machine, hors du repo :
+
+```
+~/.mos/
+├── orchestrator.db            # SQLite : missions, events, tasks, skills, remote_tokens
+├── agents/<nom>/
+│   ├── config.json            # { name, model, permissionMode, cwd? }
+│   ├── system-prompt.md       # injecté via --append-system-prompt (optionnel)
+│   └── memory/                # fichiers mémoire de l'agent
+└── channels/<nom>.json        # config d'un canal d'entrée (Telegram, webhook)
+```
+
+## Créer ton premier agent
+
+Aucun agent n'existe par défaut. Crée-en un, puis recharge la page **Agents** de l'interface :
+
+```bash
+mkdir -p ~/.mos/agents/assistant
+cat > ~/.mos/agents/assistant/config.json <<'JSON'
+{
+  "name": "assistant",
+  "model": "sonnet",
+  "permissionMode": "acceptEdits",
+  "cwd": "/chemin/vers/ton/projet"
+}
+JSON
+```
+
+Champs lus par l'orchestrateur :
+
+| Champ | Rôle |
+|---|---|
+| `name` | Identifiant de l'agent (= nom du dossier) |
+| `model` | Modèle passé à `claude --model` (ex. `sonnet`, `opus`) |
+| `permissionMode` | `claude --permission-mode` (ex. `acceptEdits`, `plan`, `default`) |
+| `cwd` | Répertoire de travail de l'agent (défaut : home) |
+
+Optionnel : `~/.mos/agents/assistant/system-prompt.md` pour personnaliser le prompt système (sinon un prompt par défaut est utilisé).
+
+## Variables d'environnement (orchestrateur)
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `PORT` | `9000` | Port HTTP de l'orchestrateur |
+| `FRONTEND_URL` | `http://localhost:3000` | Origine CORS autorisée |
+| `MAXOS_JWT_SECRET` | aléatoire (éphémère) | Signe les tokens du pilotage distant — **à fixer en production** |
+
+## Build production
+
+```bash
+# Orchestrateur
+cd orchestrator && npm run build && npm start
+
+# Frontend
+cd app && npm run build
+```
+
+## Pack pédagogique
+
+Ce repo embarque aussi le pack qui a servi à concevoir le projet :
+
+- `diagrammes/` — visuels d'architecture (primitives, modèle mental, roadmap)
+- `prompts-claude-design/` — prompts UI prêts à coller dans Claude Design
+- `prompts-claude-code/` — prompts back prêts à coller dans Claude Code
